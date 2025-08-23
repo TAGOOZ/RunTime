@@ -5,6 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { GPSSimulator, SimulationConfig, TEST_LOCATIONS, createTestScenario, SimulatedGPSPoint } from '../lib/gpsSimulator';
 import { GPSTracker, GPSPoint } from '../lib/gps';
+import { saveSession } from '../lib/storage';
+import { v4 as uuidv4 } from 'uuid';
 
 interface GPSTestPanelProps {
   onClose: () => void;
@@ -16,10 +18,14 @@ export function GPSTestPanel({ onClose }: GPSTestPanelProps) {
     points: SimulatedGPSPoint[];
     distance: number;
     duration: number;
+    averagePace: number;
+    maxSpeed: number;
   }>({
     points: [],
     distance: 0,
-    duration: 0
+    duration: 0,
+    averagePace: 0,
+    maxSpeed: 0
   });
   
   const simulatorRef = useRef<GPSSimulator | null>(null);
@@ -66,7 +72,18 @@ export function GPSTestPanel({ onClose }: GPSTestPanelProps) {
       if (gpsTrackerRef.current) {
         (gpsTrackerRef.current as any).points.push(gpsPoint);
         const totalDistance = (gpsTrackerRef.current as any).calculateTotalDistance();
+        const currentPace = (gpsTrackerRef.current as any).calculateAveragePace();
+        const maxSpeed = (gpsTrackerRef.current as any).calculateMaxSpeed();
+        
         gpsTrackerRef.current.onUpdate?.(gpsPoint, totalDistance);
+        
+        setSimulationData(prev => ({
+          ...prev,
+          distance: totalDistance,
+          duration: Math.floor((Date.now() - startTimeRef.current) / 1000),
+          averagePace: currentPace,
+          maxSpeed: maxSpeed
+        }));
       }
 
       // Update display data
@@ -79,13 +96,50 @@ export function GPSTestPanel({ onClose }: GPSTestPanelProps) {
     simulatorRef.current.start();
   };
 
-  const stopSimulation = () => {
+  const stopSimulation = async () => {
     if (!isSimulating) return;
 
     setIsSimulating(false);
     simulatorRef.current?.stop();
+    
+    // Save simulation results to database
+    if (simulationData.points.length > 0) {
+      await saveSimulationResults();
+    }
+    
     simulatorRef.current = null;
     gpsTrackerRef.current = null;
+  };
+
+  const saveSimulationResults = async () => {
+    try {
+      // Convert simulated points to GPS points
+      const gpsPoints: GPSPoint[] = simulationData.points.map(point => ({
+        latitude: point.latitude,
+        longitude: point.longitude,
+        timestamp: point.timestamp,
+        accuracy: point.accuracy
+      }));
+
+      // Create a workout session from simulation data
+      const sessionRecord = {
+        run_time: Math.floor(simulationData.duration * 0.6), // Assume 60% running
+        walk_time: Math.floor(simulationData.duration * 0.4), // Assume 40% walking
+        rounds: 1, // Simulation is one continuous session
+        total_duration: simulationData.duration,
+        total_run_time: Math.floor(simulationData.duration * 0.6),
+        total_walk_time: Math.floor(simulationData.duration * 0.4),
+        distance: simulationData.distance,
+        average_pace: simulationData.averagePace,
+        max_speed: simulationData.maxSpeed,
+        date: new Date().toISOString()
+      };
+
+      await saveSession(sessionRecord, gpsPoints);
+      console.log('Simulation results saved to database');
+    } catch (error) {
+      console.error('Failed to save simulation results:', error);
+    }
   };
 
   const loadPreset = (preset: 'walk' | 'jog' | 'run' | 'sprint') => {
@@ -204,6 +258,27 @@ export function GPSTestPanel({ onClose }: GPSTestPanelProps) {
                 <div className="text-xs text-gray-400">Duration</div>
               </div>
             </div>
+            
+            {/* Additional metrics */}
+            {simulationData.averagePace > 0 && (
+              <div className="grid grid-cols-2 gap-4 text-center mt-4 pt-4 border-t border-gray-600">
+                <div>
+                  <div className="text-lg font-bold text-cyan-400">
+                    {simulationData.averagePace < 60 
+                      ? `${simulationData.averagePace.toFixed(1)} min/km`
+                      : `${Math.floor(simulationData.averagePace)}:${Math.round((simulationData.averagePace % 1) * 60).toString().padStart(2, '0')} /km`
+                    }
+                  </div>
+                  <div className="text-xs text-gray-400">Avg Pace</div>
+                </div>
+                <div>
+                  <div className="text-lg font-bold text-orange-400">
+                    {simulationData.maxSpeed.toFixed(1)} km/h
+                  </div>
+                  <div className="text-xs text-gray-400">Max Speed</div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Latest GPS Point */}
@@ -250,7 +325,7 @@ export function GPSTestPanel({ onClose }: GPSTestPanelProps) {
               className="flex-1"
             >
               <Square size={16} className="mr-2" />
-              Stop Simulation
+              {isSimulating ? 'Stop & Save' : 'Stop Simulation'}
             </Button>
           </div>
 
@@ -263,6 +338,7 @@ export function GPSTestPanel({ onClose }: GPSTestPanelProps) {
             <p>
               This GPS simulator generates realistic movement patterns for testing the GPS tracking functionality.
               It simulates different routes (straight, circular, figure-8, random) with configurable speed and accuracy.
+              <strong className="text-white"> Results are automatically saved to your workout history when stopped.</strong>
             </p>
           </div>
         </CardContent>
