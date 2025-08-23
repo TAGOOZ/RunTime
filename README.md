@@ -44,29 +44,79 @@ A Progressive Web App (PWA) for fitness interval training with offline-first sup
 If you want cloud sync functionality, create this table in your Supabase database:
 
 ```sql
+-- Create users table (if not using Supabase Auth)
+CREATE TABLE IF NOT EXISTS users (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  email text UNIQUE NOT NULL,
+  created_at timestamptz DEFAULT now()
+);
+
+-- Create workout sessions table
 CREATE TABLE workout_sessions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
   run_time integer NOT NULL,
   walk_time integer NOT NULL,
   rounds integer NOT NULL,
   total_duration integer NOT NULL,
   total_run_time integer NOT NULL,
   total_walk_time integer NOT NULL,
-  date timestamptz NOT NULL DEFAULT now(),
-  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  created_at timestamptz DEFAULT now(),
+  date timestamptz DEFAULT now(),
+  distance numeric,
+  average_pace numeric DEFAULT 0,
+  max_speed numeric DEFAULT 0
+);
+
+-- Create GPS tracks table
+CREATE TABLE gps_tracks (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id uuid NOT NULL REFERENCES workout_sessions(id) ON DELETE CASCADE,
+  points jsonb NOT NULL DEFAULT '[]'::jsonb,
   created_at timestamptz DEFAULT now()
 );
 
--- Enable RLS
+-- Enable RLS on both tables
 ALTER TABLE workout_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE gps_tracks ENABLE ROW LEVEL SECURITY;
 
--- Policy for authenticated users to manage their own sessions
+-- Create indexes for better performance
+CREATE INDEX idx_workout_sessions_user_id ON workout_sessions(user_id);
+CREATE INDEX idx_gps_tracks_session_id ON gps_tracks(session_id);
+
+-- Policies for workout_sessions
 CREATE POLICY "Users can manage their own sessions"
-ON workout_sessions
-FOR ALL
-TO authenticated
-USING (auth.uid() = user_id)
-WITH CHECK (auth.uid() = user_id);
+  ON workout_sessions
+  FOR ALL
+  TO authenticated
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+-- Allow anonymous users to insert sessions (for offline-first functionality)
+CREATE POLICY "Allow insert for anon users"
+  ON workout_sessions
+  FOR INSERT
+  TO anon
+  WITH CHECK (true);
+
+-- Allow public read access to sessions
+CREATE POLICY "Enable read access for all users"
+  ON workout_sessions
+  FOR SELECT
+  TO public
+  USING (true);
+
+-- Policies for gps_tracks
+CREATE POLICY "Users can manage their own GPS tracks"
+  ON gps_tracks
+  FOR ALL
+  TO authenticated
+  USING (session_id IN (
+    SELECT id FROM workout_sessions WHERE user_id = auth.uid()
+  ))
+  WITH CHECK (session_id IN (
+    SELECT id FROM workout_sessions WHERE user_id = auth.uid()
+  ));
 ```
 
 ## Usage
