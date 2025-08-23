@@ -49,7 +49,7 @@ export function useSupabaseSync() {
 
       const { data: uploadedSessions, error } = await supabase
         .from('workout_sessions')
-        .insert(sessionsToUpload);
+        .insert(sessionsToUpload)
         .select('id');
 
       if (error) {
