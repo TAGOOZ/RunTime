@@ -276,3 +276,136 @@ export function FinishScreen({ session, onNewWorkout, onViewStats, onDontSave }:
     </div>
   );
 }
+                {session.completedRounds !== undefined && session.completedRounds !== session.rounds && session.completedRounds >= 0 && (
+                  <div className="text-xs text-yellow-400 mt-1">Completed: <span className="font-bold">{session.completedRounds}</span></div>
+                )}
+              </div>
+              <div className="flex flex-col items-center">
+                <div className="flex items-center gap-1 text-gray-400 text-base">
+                  <div className="w-3 h-3 bg-orange-500 rounded"></div>
+                  Run Time
+                </div>
+                <div className="font-bold text-xl text-white mt-1">{formatTime(Math.max(0, session.totalRunTime))}</div>
+              </div>
+              <div className="flex flex-col items-center">
+                <div className="flex items-center gap-1 text-gray-400 text-base">
+                  <div className="w-3 h-3 bg-cyan-500 rounded"></div>
+                  Walk Time
+                </div>
+                <div className="font-bold text-xl text-white mt-1">{formatTime(Math.max(0, session.totalWalkTime))}</div>
+              </div>
+            </div>
+
+            {/* Distance Display - Always show, even if 0 */}
+            {sessionDistance >= 0 && (
+              <div className="border-t border-gray-700 pt-4 text-center">
+                <div className="flex items-center justify-center gap-2 text-gray-400 text-base mb-1">
+                  <MapPin size={16} />
+                  {sessionDistance > 0 ? 'Distance Covered' : 'Distance (GPS not used)'}
+                </div>
+                <div className={`font-extrabold text-3xl ${sessionDistance > 0 ? 'text-green-400' : 'text-gray-500'}`}>
+                  {formatDistance(sessionDistance)}
+                </div>
+              </div>
+            )}
+
+            {/* GPS Analytics */}
+            {hasGPSData && (session.averagePace || session.maxSpeed) && (
+              <div className="border-t border-gray-700 pt-4">
+                <div className="grid grid-cols-2 gap-4 text-center">
+                  {session.averagePace && session.averagePace > 0 && (
+                    <div>
+                      <div className="flex items-center justify-center gap-1 text-gray-400 text-sm mb-1">
+                        <Navigation size={14} />
+                        Average Pace
+                      </div>
+                      <div className="font-bold text-lg text-cyan-400">
+                        {formatPace(session.averagePace)}
+                      </div>
+                    </div>
+                  )}
+                  {session.maxSpeed && session.maxSpeed > 0 && (
+                    <div>
+                      <div className="text-gray-400 text-sm mb-1">Max Speed</div>
+                      <div className="font-bold text-lg text-orange-400">
+                        {session.maxSpeed.toFixed(1)} km/h
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="border-t border-gray-700 pt-4 text-center">
+              <div className="text-gray-400 text-base mb-1">Workout Pattern</div>
+              <div className="font-semibold text-lg text-white">
+                {isFreeRounds ? (
+                  <span className="flex items-center gap-2 justify-center">
+                    <Badge variant="outline" className="border-yellow-400 text-yellow-400 text-base px-2 py-1">
+                      Free Mode
+                    </Badge>
+                    {session.runTime}s run / {session.walkTime}s walk
+                  </span>
+                ) : (
+                  `${session.runTime}s run / ${session.walkTime}s walk × ${session.rounds} rounds`
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Route Map */}
+        {hasGPSData && (
+          <Card className="bg-gray-800 border-gray-700 shadow-lg">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-white text-xl font-bold flex items-center gap-2">
+                <Map size={20} />
+                Your Route
+                <Button
+                  onClick={() => setShowMap(!showMap)}
+                  variant="ghost"
+                  size="sm"
+                  className="ml-auto text-gray-400 hover:text-white"
+                >
+                  {showMap ? 'Hide' : 'Show'}
+                </Button>
+              </CardTitle>
+            </CardHeader>
+            {showMap && (
+              <CardContent className="pt-0">
+                <RouteMap points={session.gpsPoints || []} />
+              </CardContent>
+            )}
+          </Card>
+        )}
+
+        {/* Action buttons */}
+        <div className="flex flex-col gap-4 w-full mt-8">
+          <Button
+            onClick={onNewWorkout}
+            className="w-full py-6 rounded-lg text-3xl font-bold flex items-center justify-center gap-3 bg-yellow-400 text-black hover:bg-yellow-300 transition-colors"
+          >
+            <RotateCcw size={24} />
+            <span>New Workout</span>
+          </Button>
+          <Button
+            onClick={onViewStats}
+            variant="secondary"
+            className="w-full py-6 rounded-lg text-3xl font-bold flex items-center justify-center gap-3 bg-gray-700 text-white hover:bg-gray-600 transition-colors"
+          >
+            <BarChart3 size={24} />
+            <span>View Stats</span>
+          </Button>
+          <Button
+            onClick={onDontSave}
+            variant="destructive"
+            className="w-full py-6 rounded-lg text-3xl font-bold flex items-center justify-center gap-3 bg-red-600 text-white hover:bg-red-500 transition-colors"
+          >
+            <XCircle size={24} />
+            <span>Don't save</span>
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
