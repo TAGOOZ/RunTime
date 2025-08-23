@@ -10,7 +10,9 @@ import {
   Activity,
   Zap,
   MapPin,
-  Navigation
+  Navigation,
+  BarChart3,
+  LineChart
 } from 'lucide-react';
 import { formatTime } from '../lib/utils';
 import { getAllSessionsWithGPS } from '../lib/storage';
@@ -19,6 +21,22 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { RouteMap } from './RouteMap';
 import { GPSPoint } from '../lib/gps';
+import { 
+  LineChart as RechartsLineChart, 
+  Line, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer,
+  BarChart as RechartsBarChart,
+  Bar,
+  Area,
+  AreaChart,
+  PieChart,
+  Pie,
+  Cell
+} from 'recharts';
 
 interface StatsScreenProps {
   onBack: () => void;
@@ -50,6 +68,7 @@ export function StatsScreen({ onBack }: StatsScreenProps) {
   const [refreshing, setRefreshing] = useState(false);
   const [displayMonth, setDisplayMonth] = useState(new Date().getMonth());
   const [displayYear, setDisplayYear] = useState(new Date().getFullYear());
+  const [activeChart, setActiveChart] = useState<'trends' | 'distribution' | 'pace' | 'calendar'>('trends');
 
   const loadSessions = async () => {
     try {
@@ -251,6 +270,73 @@ export function StatsScreen({ onBack }: StatsScreenProps) {
 
   const stats = getStats();
 
+  // Prepare chart data
+  const getChartData = () => {
+    const filteredSessions = filterSessionsByPeriod(sessions, period);
+    
+    // Group sessions by date for trends
+    const dailyData: Record<string, {
+      date: string;
+      workouts: number;
+      totalDistance: number;
+      totalTime: number;
+      avgPace: number;
+      runTime: number;
+      walkTime: number;
+    }> = {};
+
+    filteredSessions.forEach(({ session }) => {
+      const date = new Date(session.date).toLocaleDateString('en-US', { 
+        month: 'short', 
+        day: 'numeric' 
+      });
+      
+      if (!dailyData[date]) {
+        dailyData[date] = {
+          date,
+          workouts: 0,
+          totalDistance: 0,
+          totalTime: 0,
+          avgPace: 0,
+          runTime: 0,
+          walkTime: 0
+        };
+      }
+      
+      dailyData[date].workouts += 1;
+      dailyData[date].totalDistance += session.distance || 0;
+      dailyData[date].totalTime += session.total_duration;
+      dailyData[date].runTime += session.total_run_time;
+      dailyData[date].walkTime += session.total_walk_time;
+      
+      if (session.average_pace && session.average_pace > 0) {
+        dailyData[date].avgPace = session.average_pace;
+      }
+    });
+
+    return Object.values(dailyData).sort((a, b) => 
+      new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+  };
+
+  const chartData = getChartData();
+
+  // Pie chart data for time distribution
+  const timeDistributionData = [
+    { name: 'Running', value: stats.totalRunTime, color: '#FF5722' },
+    { name: 'Walking', value: stats.totalWalkTime, color: '#0288D1' }
+  ];
+
+  // Pace trend data
+  const paceData = sessions
+    .filter(({ session }) => session.average_pace && session.average_pace > 0)
+    .slice(-10) // Last 10 sessions with pace data
+    .map(({ session }, index) => ({
+      session: `#${index + 1}`,
+      pace: session.average_pace,
+      distance: (session.distance || 0) / 1000 // Convert to km
+    }));
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
@@ -376,6 +462,191 @@ export function StatsScreen({ onBack }: StatsScreenProps) {
               <Calendar className="mx-auto mb-2 text-yellow-400" size={24} />
               <div className="text-xl font-bold text-white">{formatTime(stats.totalWalkTime)}</div>
               <div className="text-sm text-gray-400">Total Walk</div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Chart Section */}
+        <div className="mb-8">
+          <Card className="bg-gray-800 border-gray-700">
+            <CardContent className="p-6">
+              {/* Chart Navigation */}
+              <div className="flex flex-wrap justify-between items-center mb-6">
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                  <BarChart3 size={24} />
+                  Analytics Dashboard
+                </h2>
+                <div className="flex gap-2 flex-wrap">
+                  {[
+                    { key: 'trends', label: 'Trends', icon: LineChart },
+                    { key: 'distribution', label: 'Time Split', icon: Target },
+                    { key: 'pace', label: 'Pace', icon: Zap },
+                    { key: 'calendar', label: 'Calendar', icon: Calendar }
+                  ].map(({ key, label, icon: Icon }) => (
+                    <Button
+                      key={key}
+                      onClick={() => setActiveChart(key as any)}
+                      variant={activeChart === key ? "default" : "ghost"}
+                      size="sm"
+                      className={activeChart === key 
+                        ? "bg-yellow-400 text-black hover:bg-yellow-300" 
+                        : "text-gray-300 hover:text-white hover:bg-gray-700"
+                      }
+                    >
+                      <Icon size={16} className="mr-1" />
+                      {label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Chart Content */}
+              <div className="h-80">
+                {activeChart === 'trends' && chartData.length > 0 && (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RechartsLineChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                      <XAxis 
+                        dataKey="date" 
+                        stroke="#9CA3AF"
+                        fontSize={12}
+                      />
+                      <YAxis stroke="#9CA3AF" fontSize={12} />
+                      <Tooltip 
+                        contentStyle={{ 
+                          backgroundColor: '#1F2937', 
+                          border: '1px solid #374151',
+                          borderRadius: '8px',
+                          color: '#F3F4F6'
+                        }}
+                        formatter={(value: any, name: string) => {
+                          if (name === 'totalDistance') {
+                            return [`${(value / 1000).toFixed(2)} km`, 'Distance'];
+                          }
+                          if (name === 'totalTime') {
+                            return [formatTime(value), 'Total Time'];
+                          }
+                          return [value, name];
+                        }}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="totalDistance" 
+                        stroke="#10B981" 
+                        strokeWidth={3}
+                        dot={{ fill: '#10B981', strokeWidth: 2, r: 4 }}
+                        name="Distance (m)"
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="workouts" 
+                        stroke="#F59E0B" 
+                        strokeWidth={3}
+                        dot={{ fill: '#F59E0B', strokeWidth: 2, r: 4 }}
+                        name="Workouts"
+                      />
+                    </RechartsLineChart>
+                  </ResponsiveContainer>
+                )}
+
+                {activeChart === 'distribution' && stats.totalSessions > 0 && (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={timeDistributionData}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, value, percent }) => 
+                          `${name}: ${formatTime(value)} (${(percent * 100).toFixed(0)}%)`
+                        }
+                        outerRadius={100}
+                        fill="#8884d8"
+                        dataKey="value"
+                      >
+                        {timeDistributionData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip 
+                        contentStyle={{ 
+                          backgroundColor: '#1F2937', 
+                          border: '1px solid #374151',
+                          borderRadius: '8px',
+                          color: '#F3F4F6'
+                        }}
+                        formatter={(value: any) => [formatTime(value), 'Time']}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+
+                {activeChart === 'pace' && paceData.length > 0 && (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={paceData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                      <XAxis 
+                        dataKey="session" 
+                        stroke="#9CA3AF"
+                        fontSize={12}
+                      />
+                      <YAxis 
+                        stroke="#9CA3AF" 
+                        fontSize={12}
+                        domain={['dataMin - 1', 'dataMax + 1']}
+                      />
+                      <Tooltip 
+                        contentStyle={{ 
+                          backgroundColor: '#1F2937', 
+                          border: '1px solid #374151',
+                          borderRadius: '8px',
+                          color: '#F3F4F6'
+                        }}
+                        formatter={(value: any, name: string) => {
+                          if (name === 'pace') {
+                            return [`${value.toFixed(1)} min/km`, 'Pace'];
+                          }
+                          if (name === 'distance') {
+                            return [`${value.toFixed(2)} km`, 'Distance'];
+                          }
+                          return [value, name];
+                        }}
+                      />
+                      <Area 
+                        type="monotone" 
+                        dataKey="pace" 
+                        stroke="#8B5CF6" 
+                        fill="#8B5CF6" 
+                        fillOpacity={0.3}
+                        strokeWidth={2}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
+
+                {activeChart === 'calendar' && (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center text-gray-400">
+                      <Calendar size={48} className="mx-auto mb-4 opacity-50" />
+                      <p className="text-lg">Calendar view is shown below</p>
+                      <p className="text-sm">Switch to other charts to see data visualizations</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Empty state */}
+                {((activeChart === 'trends' && chartData.length === 0) ||
+                  (activeChart === 'distribution' && stats.totalSessions === 0) ||
+                  (activeChart === 'pace' && paceData.length === 0)) && (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center text-gray-400">
+                      <BarChart3 size={48} className="mx-auto mb-4 opacity-50" />
+                      <p className="text-lg">No data available</p>
+                      <p className="text-sm">Complete some workouts to see your analytics</p>
+                    </div>
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
         </div>
