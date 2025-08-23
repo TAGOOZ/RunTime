@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { formatTime } from '../lib/utils';
 import { Play, BarChart3, MapPin } from 'lucide-react';
 import { GPSTestPanel } from './GPSTestPanel';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface SetupScreenProps {
   onStart: (config: {
@@ -121,6 +122,14 @@ export function SetupScreen({ onStart, onViewStats }: SetupScreenProps) {
           <MapPin size={28} />
           GPS Test
         </button>
+
+        {/* PWA Install Button */}
+        <div className="flex justify-center">
+          <PWAInstallButton 
+            variant="outline" 
+            className="bg-gray-800 border-gray-600 text-white hover:bg-gray-700 py-3 px-6 text-lg"
+          />
+        </div>
 
         <div className="text-center text-gray-400">
           <p>
