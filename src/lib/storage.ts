@@ -1,9 +1,11 @@
 import { openDB, IDBPDatabase } from 'idb';
 import { WorkoutSession } from './supabase';
+import { GPSPoint } from './gps';
 
 const DB_NAME = 'fitness-timer-db';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = 'sessions';
+const GPS_STORE_NAME = 'gps_tracks';
 
 let db: IDBPDatabase | null = null;
 
@@ -20,22 +22,88 @@ export async function initDB(): Promise<IDBPDatabase> {
         store.createIndex('date', 'date');
         store.createIndex('synced', 'synced');
       }
+      
+      if (!database.objectStoreNames.contains(GPS_STORE_NAME)) {
+        const gpsStore = database.createObjectStore(GPS_STORE_NAME, {
+          keyPath: 'sessionId'
+        });
+        gpsStore.createIndex('sessionId', 'sessionId');
+      }
     },
   });
   
   return db;
 }
 
-export async function saveSession(session: Omit<WorkoutSession, 'id'>): Promise<void> {
+export async function saveSession(
+  session: Omit<WorkoutSession, 'id'>, 
+  gpsPoints?: GPSPoint[]
+): Promise<number> {
   const database = await initDB();
-  // Ensure distance is always present (default 0 if missing)
-  const sessionWithSync = { ...session, distance: session.distance ?? 0, synced: 0 as const };
-  await database.add(STORE_NAME, sessionWithSync);
+  
+  const tx = database.transaction([STORE_NAME, GPS_STORE_NAME], 'readwrite');
+  
+  // Save session
+  const sessionWithSync = { 
+    ...session, 
+    distance: session.distance ?? 0, 
+    synced: 0 as const 
+  };
+  const sessionId = await tx.objectStore(STORE_NAME).add(sessionWithSync);
+  
+  // Save GPS points if available
+  if (gpsPoints && gpsPoints.length > 0) {
+    await tx.objectStore(GPS_STORE_NAME).add({
+      sessionId: sessionId as number,
+      points: gpsPoints,
+      createdAt: new Date().toISOString()
+    });
+  }
+  
+  await tx.done;
+  return sessionId as number;
 }
 
 export async function getSessions(): Promise<WorkoutSession[]> {
   const database = await initDB();
   return await database.getAll(STORE_NAME);
+}
+
+export async function getSessionWithGPS(sessionId: number): Promise<{
+  session: WorkoutSession;
+  gpsPoints?: GPSPoint[];
+} | null> {
+  const database = await initDB();
+  
+  const session = await database.get(STORE_NAME, sessionId);
+  if (!session) return null;
+  
+  const gpsTrack = await database.get(GPS_STORE_NAME, sessionId);
+  
+  return {
+    session,
+    gpsPoints: gpsTrack?.points
+  };
+}
+
+export async function getAllSessionsWithGPS(): Promise<Array<{
+  session: WorkoutSession;
+  gpsPoints?: GPSPoint[];
+}>> {
+  const database = await initDB();
+  
+  const sessions = await database.getAll(STORE_NAME);
+  const results = [];
+  
+  for (const session of sessions) {
+    const gpsTrack = await database.get(GPS_STORE_NAME, session.id);
+    results.push({
+      session,
+      gpsPoints: gpsTrack?.points
+    });
+  }
+  
+  return results;
 }
 
 export async function getUnsyncedSessions(): Promise<WorkoutSession[]> {
@@ -61,7 +129,10 @@ export async function markSessionsSynced(sessionIds: number[]): Promise<void> {
 
 export async function clearSessions(): Promise<void> {
   const database = await initDB();
-  await database.clear(STORE_NAME);
+  const tx = database.transaction([STORE_NAME, GPS_STORE_NAME], 'readwrite');
+  await tx.objectStore(STORE_NAME).clear();
+  await tx.objectStore(GPS_STORE_NAME).clear();
+  await tx.done;
 }
 
 // Fallback to localStorage if IndexedDB fails

@@ -1,8 +1,11 @@
 import { formatTime } from '../lib/utils';
-import { CheckCircle, BarChart3, RotateCcw, XCircle, MapPin } from 'lucide-react';
+import { CheckCircle, BarChart3, RotateCcw, XCircle, MapPin, Navigation, Map } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { RouteMap } from './RouteMap';
+import { GPSPoint } from '../lib/gps';
+import { useState } from 'react';
 
 type FinishScreenProps = {
   session: {
@@ -13,7 +16,10 @@ type FinishScreenProps = {
     totalDuration: number;
     totalRunTime: number;
     totalWalkTime: number;
-    distance: number; // Added distance property
+    distance: number;
+    gpsPoints?: GPSPoint[];
+    averagePace?: number;
+    maxSpeed?: number;
   };
   onNewWorkout: () => void;
   onViewStats: () => void;
@@ -22,6 +28,8 @@ type FinishScreenProps = {
 
 export function FinishScreen({ session, onNewWorkout, onViewStats, onDontSave }: FinishScreenProps) {
   const isFreeRounds = session.rounds <= 0;
+  const [showMap, setShowMap] = useState(false);
+  const hasGPSData = session.gpsPoints && session.gpsPoints.length > 0;
   
   // Format distance for display (meters or kilometers)
   const formatDistance = (distance: number) => {
@@ -29,6 +37,16 @@ export function FinishScreen({ session, onNewWorkout, onViewStats, onDontSave }:
       return `${(distance / 1000).toFixed(2)} km`;
     }
     return `${Math.round(distance)} m`;
+  };
+
+  // Format pace for display
+  const formatPace = (pace: number) => {
+    if (pace < 60) {
+      return `${pace.toFixed(1)} min/km`;
+    }
+    const minutes = Math.floor(pace);
+    const seconds = Math.round((pace % 1) * 60);
+    return `${minutes}:${seconds.toString().padStart(2, '0')} /km`;
   };
 
   return (
@@ -100,6 +118,33 @@ export function FinishScreen({ session, onNewWorkout, onViewStats, onDontSave }:
               </div>
             )}
 
+            {/* GPS Analytics */}
+            {hasGPSData && (session.averagePace || session.maxSpeed) && (
+              <div className="border-t border-gray-700 pt-4">
+                <div className="grid grid-cols-2 gap-4 text-center">
+                  {session.averagePace && session.averagePace > 0 && (
+                    <div>
+                      <div className="flex items-center justify-center gap-1 text-gray-400 text-sm mb-1">
+                        <Navigation size={14} />
+                        Average Pace
+                      </div>
+                      <div className="font-bold text-lg text-cyan-400">
+                        {formatPace(session.averagePace)}
+                      </div>
+                    </div>
+                  )}
+                  {session.maxSpeed && session.maxSpeed > 0 && (
+                    <div>
+                      <div className="text-gray-400 text-sm mb-1">Max Speed</div>
+                      <div className="font-bold text-lg text-orange-400">
+                        {session.maxSpeed.toFixed(1)} km/h
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="border-t border-gray-700 pt-4 text-center">
               <div className="text-gray-400 text-base mb-1">Workout Pattern</div>
               <div className="font-semibold text-lg text-white">
@@ -117,6 +162,31 @@ export function FinishScreen({ session, onNewWorkout, onViewStats, onDontSave }:
             </div>
           </CardContent>
         </Card>
+
+        {/* Route Map */}
+        {hasGPSData && (
+          <Card className="bg-gray-800 border-gray-700 shadow-lg">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-white text-xl font-bold flex items-center gap-2">
+                <Map size={20} />
+                Your Route
+                <Button
+                  onClick={() => setShowMap(!showMap)}
+                  variant="ghost"
+                  size="sm"
+                  className="ml-auto text-gray-400 hover:text-white"
+                >
+                  {showMap ? 'Hide' : 'Show'}
+                </Button>
+              </CardTitle>
+            </CardHeader>
+            {showMap && (
+              <CardContent className="pt-0">
+                <RouteMap points={session.gpsPoints || []} />
+              </CardContent>
+            )}
+          </Card>
+        )}
 
         {/* Action buttons */}
         <div className="flex flex-col gap-4 w-full mt-8">

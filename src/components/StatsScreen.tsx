@@ -8,13 +8,17 @@ import {
   ChevronLeft, 
   ChevronRight, 
   Activity,
-  Zap
+  Zap,
+  MapPin,
+  Navigation
 } from 'lucide-react';
 import { formatTime } from '../lib/utils';
-import { getSessions } from '../lib/storage';
+import { getAllSessionsWithGPS } from '../lib/storage';
 import { supabase } from '../lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { RouteMap } from './RouteMap';
+import { GPSPoint } from '../lib/gps';
 
 interface StatsScreenProps {
   onBack: () => void;
@@ -26,6 +30,7 @@ interface CalendarDay {
   runTime: number;
   walkTime: number;
   distance: number;
+  averagePace: number;
 }
 
 type Period = 'week' | 'month' | 'all';
@@ -34,7 +39,12 @@ type Period = 'week' | 'month' | 'all';
 export function StatsScreen({ onBack }: StatsScreenProps) {
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
-  const [sessions, setSessions] = useState<any[]>([]);
+  const [showRouteModal, setShowRouteModal] = useState(false);
+  const [selectedRoutePoints, setSelectedRoutePoints] = useState<GPSPoint[]>([]);
+  const [sessions, setSessions] = useState<Array<{
+    session: any;
+    gpsPoints?: GPSPoint[];
+  }>>([]);
   const [period, setPeriod] = useState<Period>('week');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -46,32 +56,41 @@ export function StatsScreen({ onBack }: StatsScreenProps) {
       setRefreshing(true);
       const { data, error } = await supabase
         .from('workout_sessions')
-        .select('*')
+        .select(`
+          *,
+          gps_tracks (
+            points
+          )
+        `)
         .order('date', { ascending: false });
 
       if (error) {
-        const localData = await getSessions();
+        const localData = await getAllSessionsWithGPS();
         setSessions(localData);
       } else {
         const formattedData = data.map(session => ({
-          id: session.id,
-          run_time: session.run_time,
-          walk_time: session.walk_time,
-          rounds: session.rounds,
-          total_duration: session.total_duration,
-          total_run_time: session.total_run_time,
-          total_walk_time: session.total_walk_time,
-          distance: session.distance ?? 0,
-          date: session.date,
-          synced: 1
+          session: {
+            id: session.id,
+            run_time: session.run_time,
+            walk_time: session.walk_time,
+            rounds: session.rounds,
+            total_duration: session.total_duration,
+            total_run_time: session.total_run_time,
+            total_walk_time: session.total_walk_time,
+            distance: session.distance ?? 0,
+            average_pace: session.average_pace,
+            max_speed: session.max_speed,
+            date: session.date,
+            synced: 1
+          },
+          gpsPoints: session.gps_tracks?.[0]?.points || undefined
         }));
         setSessions(formattedData);
       }
     } catch (error) {
       try {
-        const localData = await getSessions();
-  // Patch localData to ensure distance is always present
-  setSessions(localData.map(s => ({ ...s, distance: s.distance ?? 0 })));
+        const localData = await getAllSessionsWithGPS();
+        setSessions(localData);
       } catch (localError) {
         // handle error
       }
@@ -95,17 +114,29 @@ export function StatsScreen({ onBack }: StatsScreenProps) {
   let calendarDayArr: CalendarDay[] = [];
   if (sessions && Array.isArray(sessions)) {
     const calendarDays: Record<string, CalendarDay> = sessions
-      .filter((s: any) => {
-        const d = new Date(s.date);
+      .filter(({ session }) => {
+        const d = new Date(session.date);
         return d.getFullYear() === displayYear && d.getMonth() === displayMonth;
       })
-      .reduce((acc: Record<string, CalendarDay>, s: any) => {
-        const dateStr = new Date(s.date).toLocaleDateString();
-  if (!acc[dateStr]) acc[dateStr] = { date: dateStr, sessions: 0, runTime: 0, walkTime: 0, distance: 0 };
+      .reduce((acc: Record<string, CalendarDay>, { session }) => {
+        const dateStr = new Date(session.date).toLocaleDateString();
+        if (!acc[dateStr]) {
+          acc[dateStr] = { 
+            date: dateStr, 
+            sessions: 0, 
+            runTime: 0, 
+            walkTime: 0, 
+            distance: 0,
+            averagePace: 0
+          };
+        }
   acc[dateStr].sessions += 1;
-  acc[dateStr].runTime += s.total_run_time || 0;
-  acc[dateStr].walkTime += s.total_walk_time || 0;
-  acc[dateStr].distance += s.distance || 0;
+        acc[dateStr].runTime += session.total_run_time || 0;
+        acc[dateStr].walkTime += session.total_walk_time || 0;
+        acc[dateStr].distance += session.distance || 0;
+        if (session.average_pace) {
+          acc[dateStr].averagePace = (acc[dateStr].averagePace + session.average_pace) / 2;
+        }
         return acc;
       }, {});
     calendarDayArr = Object.values(calendarDays);
@@ -164,7 +195,7 @@ export function StatsScreen({ onBack }: StatsScreenProps) {
   };
 
   // Filter sessions by period
-  const filterSessionsByPeriod = (sessions: any[], period: Period): any[] => {
+  const filterSessionsByPeriod = (sessions: Array<{ session: any; gpsPoints?: GPSPoint[] }>, period: Period) => {
     const now = new Date();
     const cutoffDate = new Date();
 
@@ -180,23 +211,29 @@ export function StatsScreen({ onBack }: StatsScreenProps) {
         break;
     }
 
-    return sessions.filter(session => new Date(session.date) >= cutoffDate);
+    return sessions.filter(({ session }) => new Date(session.date) >= cutoffDate);
   };
 
   const getStats = () => {
     const filteredSessions = filterSessionsByPeriod(sessions, period);
 
     const totalSessions = filteredSessions.length;
-    const totalRunTime = filteredSessions.reduce((sum, session) => sum + session.total_run_time, 0);
-    const totalWalkTime = filteredSessions.reduce((sum, session) => sum + session.total_walk_time, 0);
-    const totalDuration = filteredSessions.reduce((sum, session) => sum + session.total_duration, 0);
-    const totalDistance = filteredSessions.reduce((sum, session) => sum + (session.distance || 0), 0);
+    const totalRunTime = filteredSessions.reduce((sum, { session }) => sum + session.total_run_time, 0);
+    const totalWalkTime = filteredSessions.reduce((sum, { session }) => sum + session.total_walk_time, 0);
+    const totalDuration = filteredSessions.reduce((sum, { session }) => sum + session.total_duration, 0);
+    const totalDistance = filteredSessions.reduce((sum, { session }) => sum + (session.distance || 0), 0);
 
     // Calculate averages
     const avgWorkoutTime = totalSessions > 0 ? Math.round(totalDuration / totalSessions) : 0;
     const avgRunTime = totalSessions > 0 ? Math.round(totalRunTime / totalSessions) : 0;
     const avgWalkTime = totalSessions > 0 ? Math.round(totalWalkTime / totalSessions) : 0;
     const avgDistance = totalSessions > 0 ? totalDistance / totalSessions : 0;
+    
+    // Calculate average pace from sessions with pace data
+    const sessionsWithPace = filteredSessions.filter(({ session }) => session.average_pace > 0);
+    const avgPace = sessionsWithPace.length > 0 
+      ? sessionsWithPace.reduce((sum, { session }) => sum + session.average_pace, 0) / sessionsWithPace.length
+      : 0;
 
     return {
       totalSessions,
@@ -207,7 +244,8 @@ export function StatsScreen({ onBack }: StatsScreenProps) {
       avgWorkoutTime,
       avgRunTime,
       avgWalkTime,
-      avgDistance
+      avgDistance,
+      avgPace
     };
   };
 
@@ -272,11 +310,27 @@ export function StatsScreen({ onBack }: StatsScreenProps) {
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
           <Card className="bg-gray-800 border-gray-700">
             <CardContent className="p-4 text-center">
-              <span className="mx-auto mb-2 text-green-400 block" style={{ fontSize: 24 }}>🗺️</span>
+              <MapPin className="mx-auto mb-2 text-green-400" size={24} />
               <div className="text-xl font-bold text-white">{stats.totalDistance >= 1000 ? `${(stats.totalDistance/1000).toFixed(2)} km` : `${Math.round(stats.totalDistance)} m`}</div>
               <div className="text-sm text-gray-400">Total Distance</div>
             </CardContent>
           </Card>
+          
+          {stats.avgPace > 0 && (
+            <Card className="bg-gray-800 border-gray-700">
+              <CardContent className="p-4 text-center">
+                <Navigation className="mx-auto mb-2 text-cyan-400" size={24} />
+                <div className="text-xl font-bold text-white">
+                  {stats.avgPace < 60 
+                    ? `${stats.avgPace.toFixed(1)} min/km`
+                    : `${Math.floor(stats.avgPace)}:${Math.round((stats.avgPace % 1) * 60).toString().padStart(2, '0')} /km`
+                  }
+                </div>
+                <div className="text-sm text-gray-400">Avg Pace</div>
+              </CardContent>
+            </Card>
+          )}
+          
           <Card className="bg-gray-800 border-gray-700">
             <CardContent className="p-4 text-center">
               <Target className="mx-auto mb-2 text-orange-400" size={24} />
@@ -428,7 +482,7 @@ export function StatsScreen({ onBack }: StatsScreenProps) {
               
               {(() => {
                 const daySessions = sessions.filter(
-                  s => new Date(s.date).toLocaleDateString() === selectedDay
+                  ({ session }) => new Date(session.date).toLocaleDateString() === selectedDay
                 );
                 
                 if (daySessions.length === 0) {
@@ -436,10 +490,10 @@ export function StatsScreen({ onBack }: StatsScreenProps) {
                 }
                 
                 // Calculate totals for all sessions on this day
-                const totalRunTime = daySessions.reduce((sum, session) => sum + session.total_run_time, 0);
-                const totalWalkTime = daySessions.reduce((sum, session) => sum + session.total_walk_time, 0);
-                const totalDuration = daySessions.reduce((sum, session) => sum + session.total_duration, 0);
-                const totalDistance = daySessions.reduce((sum, session) => sum + (session.distance || 0), 0);
+                const totalRunTime = daySessions.reduce((sum, { session }) => sum + session.total_run_time, 0);
+                const totalWalkTime = daySessions.reduce((sum, { session }) => sum + session.total_walk_time, 0);
+                const totalDuration = daySessions.reduce((sum, { session }) => sum + session.total_duration, 0);
+                const totalDistance = daySessions.reduce((sum, { session }) => sum + (session.distance || 0), 0);
                 return (
                   <div className="space-y-4">
                     <h3 className="text-xl font-bold">Workouts on {selectedDay}</h3>
@@ -462,27 +516,75 @@ export function StatsScreen({ onBack }: StatsScreenProps) {
                     {/* Individual sessions */}
                     <h4 className="text-md font-semibold">Individual Sessions</h4>
                     <div className="space-y-3">
-                      {daySessions.map((s, idx) => (
-                        <div key={idx} className="bg-gray-700/30 rounded-lg p-3">
+                      {daySessions.map(({ session, gpsPoints }, idx) => (
+                        <div key={idx} className="bg-gray-700/30 rounded-lg p-3 space-y-2">
                           <div className="grid grid-cols-2 gap-2 text-sm">
                             <div className="text-cyan-300">Run:</div>
-                            <div>{formatTime(s.total_run_time)}</div>
+                            <div>{formatTime(session.total_run_time)}</div>
                             <div className="text-blue-300">Walk:</div>
-                            <div>{formatTime(s.total_walk_time)}</div>
+                            <div>{formatTime(session.total_walk_time)}</div>
                             <div className="text-lime-300">Distance:</div>
-                            <div>{s.distance >= 1000 ? `${(s.distance/1000).toFixed(2)} km` : `${Math.round(s.distance || 0)} m`}</div>
+                            <div>{session.distance >= 1000 ? `${(session.distance/1000).toFixed(2)} km` : `${Math.round(session.distance || 0)} m`}</div>
                             <div className="text-gray-300">Total:</div>
-                            <div className="font-medium">{formatTime(s.total_duration)}</div>
+                            <div className="font-medium">{formatTime(session.total_duration)}</div>
+                            {session.average_pace && session.average_pace > 0 && (
+                              <>
+                                <div className="text-purple-300">Pace:</div>
+                                <div>
+                                  {session.average_pace < 60 
+                                    ? `${session.average_pace.toFixed(1)} min/km`
+                                    : `${Math.floor(session.average_pace)}:${Math.round((session.average_pace % 1) * 60).toString().padStart(2, '0')} /km`
+                                  }
+                                </div>
+                              </>
+                            )}
                           </div>
                           <div className="text-xs text-gray-400 mt-2">
-                            Started at {new Date(s.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            Started at {new Date(session.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </div>
+                          {gpsPoints && gpsPoints.length > 0 && (
+                            <Button
+                              onClick={() => {
+                                setSelectedRoutePoints(gpsPoints);
+                                setShowRouteModal(true);
+                              }}
+                              size="sm"
+                              className="w-full mt-2 bg-green-600 hover:bg-green-700"
+                            >
+                              View Route
+                            </Button>
+                          )}
                         </div>
                       ))}
                     </div>
                   </div>
                 );
               })()}
+            </div>
+          </div>
+        )}
+
+        {/* Route Modal */}
+        {showRouteModal && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 p-4"
+            onClick={() => setShowRouteModal(false)}
+          >
+            <div
+              className="bg-gray-800 rounded-xl shadow-lg p-6 w-full max-w-4xl max-h-[80vh] overflow-y-auto"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xl font-bold text-white">Workout Route</h3>
+                <button
+                  className="text-gray-400 hover:text-white text-xl"
+                  onClick={() => setShowRouteModal(false)}
+                  aria-label="Close"
+                >
+                  &times;
+                </button>
+              </div>
+              <RouteMap points={selectedRoutePoints} className="h-96" />
             </div>
           </div>
         )}

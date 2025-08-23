@@ -5,6 +5,7 @@ import { TimerScreen } from './components/TimerScreen';
 import { FinishScreen } from './components/FinishScreen';
 import { StatsScreen } from './components/StatsScreen';
 import { saveSession } from './lib/storage';
+import { GPSPoint } from './lib/gps';
 import { useSupabaseSync } from './hooks/useSupabaseSync';
 import { useNotifications } from './hooks/useNotifications';
 import { Wifi, WifiOff, Bell, BellOff } from 'lucide-react';
@@ -21,9 +22,14 @@ interface SessionData {
   runTime: number;
   walkTime: number;
   rounds: number;
+  completedRounds?: number;
   totalDuration: number;
   totalRunTime: number;
   totalWalkTime: number;
+  distance: number;
+  gpsPoints?: GPSPoint[];
+  averagePace?: number;
+  maxSpeed?: number;
 }
 
 function App() {
@@ -66,11 +72,14 @@ function App() {
       total_duration: session.totalDuration,
       total_run_time: session.totalRunTime,
       total_walk_time: session.totalWalkTime,
+      distance: session.distance,
+      average_pace: session.averagePace,
+      max_speed: session.maxSpeed,
       date: new Date().toISOString()
     };
 
     try {
-      await saveSession(sessionRecord);
+      await saveSession(sessionRecord, session.gpsPoints);
       console.log('Session saved locally');
       
       // Try to sync immediately if online

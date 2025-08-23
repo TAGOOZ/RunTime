@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import { getUnsyncedSessions, clearSessions } from '../lib/storage';
+import { getUnsyncedSessions, clearSessions, getAllSessionsWithGPS } from '../lib/storage';
 
 export function useSupabaseSync() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -24,7 +24,10 @@ export function useSupabaseSync() {
 
     setIsSyncing(true);
     try {
-      const unsyncedSessions = await getUnsyncedSessions();
+      const allSessionsWithGPS = await getAllSessionsWithGPS();
+      const unsyncedSessions = allSessionsWithGPS
+        .filter(({ session }) => session.synced === 0)
+        .map(({ session }) => session);
       
       if (unsyncedSessions.length === 0) {
         return true;
@@ -38,16 +41,49 @@ export function useSupabaseSync() {
         total_duration: session.total_duration,
         total_run_time: session.total_run_time,
         total_walk_time: session.total_walk_time,
+        distance: session.distance,
+        average_pace: session.average_pace,
+        max_speed: session.max_speed,
         date: session.date
       }));
 
-      const { error } = await supabase
+      const { data: uploadedSessions, error } = await supabase
         .from('workout_sessions')
         .insert(sessionsToUpload);
+        .select('id');
 
       if (error) {
         console.error('Failed to sync sessions:', error);
         return false;
+      }
+
+      // Upload GPS tracks if available
+      if (uploadedSessions && uploadedSessions.length > 0) {
+        const gpsTracksToUpload = [];
+        
+        for (let i = 0; i < uploadedSessions.length; i++) {
+          const sessionWithGPS = allSessionsWithGPS.find(
+            ({ session }) => session.id === unsyncedSessions[i].id
+          );
+          
+          if (sessionWithGPS?.gpsPoints && sessionWithGPS.gpsPoints.length > 0) {
+            gpsTracksToUpload.push({
+              session_id: uploadedSessions[i].id,
+              points: sessionWithGPS.gpsPoints
+            });
+          }
+        }
+        
+        if (gpsTracksToUpload.length > 0) {
+          const { error: gpsError } = await supabase
+            .from('gps_tracks')
+            .insert(gpsTracksToUpload);
+            
+          if (gpsError) {
+            console.error('Failed to sync GPS tracks:', gpsError);
+            // Don't fail the entire sync for GPS errors
+          }
+        }
       }
 
       // Clear IndexedDB only after successful upload

@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { formatTime } from '../lib/utils';
-import { Pause, Play, Square, SkipForward } from 'lucide-react';
+import { Pause, Play, Square, SkipForward, MapPin, Navigation } from 'lucide-react';
 import { useAudio } from '../hooks/useAudio';
 import { useVibration } from '../hooks/useVibration';
 import { useNotifications } from '../hooks/useNotifications';
+import { GPSTracker, GPSPoint } from '../lib/gps';
+import { GPSPermissionModal } from './GPSPermissionModal';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -20,10 +22,14 @@ interface TimerScreenProps {
     runTime: number;
     walkTime: number;
     rounds: number;
+    completedRounds?: number;
     totalDuration: number;
     totalRunTime: number;
     totalWalkTime: number;
     distance: number;
+    gpsPoints?: GPSPoint[];
+    averagePace?: number;
+    maxSpeed?: number;
   }) => void;
   onStop: () => void;
 }
@@ -31,9 +37,6 @@ interface TimerScreenProps {
 type Phase = 'run' | 'walk' | 'countdown';
 
 export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
-  // Add simulation state INSIDE the component
-  const [simulateMovement, setSimulateMovement] = useState(false);
-  const simulationIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [currentRound, setCurrentRound] = useState(1);
   const [currentPhase, setCurrentPhase] = useState<Phase>('countdown');
   const [timeLeft, setTimeLeft] = useState(3);
@@ -42,10 +45,14 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
   const [countdownValue, setCountdownValue] = useState(3);
   const [isFreeRounds] = useState(config.rounds === -1);
 
-  // GPS tracking state
+  // GPS state
+  const [showGPSModal, setShowGPSModal] = useState(true);
+  const [gpsEnabled, setGpsEnabled] = useState(false);
+  const [gpsPermissionGranted, setGpsPermissionGranted] = useState(false);
   const [distance, setDistance] = useState(0);
-  const coordsRef = useRef<Array<{ lat: number; lng: number }>>([]);
-  const watchIdRef = useRef<number | null>(null);
+  const [currentPace, setCurrentPace] = useState(0);
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
+  const gpsTrackerRef = useRef<GPSTracker | null>(null);
 
   // Track actual run/walk time spent
   const [runTimeSpent, setRunTimeSpent] = useState(0);
@@ -55,21 +62,36 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
   const { vibrateRun, vibrateWalk, vibrateCountdown } = useVibration();
   const { showNotification } = useNotifications();
 
-  // Haversine formula to calculate distance between two lat/lng points in meters
-  function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
-    const toRad = (x: number) => (x * Math.PI) / 180;
-    const R = 6371e3; // Earth radius in meters
-    const φ1 = toRad(lat1);
-    const φ2 = toRad(lat2);
-    const Δφ = toRad(lat2 - lat1);
-    const Δλ = toRad(lon2 - lon1);
-    const a =
-      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-      Math.cos(φ1) * Math.cos(φ2) *
-      Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
-  }
+  // GPS permission and setup
+  const handleEnableGPS = async () => {
+    try {
+      const tracker = new GPSTracker((point, totalDistance) => {
+        setDistance(totalDistance);
+        setCurrentPace(tracker.getCurrentPace());
+        setGpsAccuracy(point.accuracy || null);
+      });
+      
+      const hasPermission = await tracker.requestPermission();
+      if (hasPermission) {
+        await tracker.startTracking();
+        gpsTrackerRef.current = tracker;
+        setGpsEnabled(true);
+        setGpsPermissionGranted(true);
+        setShowGPSModal(false);
+      } else {
+        throw new Error('GPS permission denied');
+      }
+    } catch (error) {
+      console.error('GPS setup failed:', error);
+      setGpsEnabled(false);
+      setShowGPSModal(false);
+    }
+  };
+
+  const handleDisableGPS = () => {
+    setGpsEnabled(false);
+    setShowGPSModal(false);
+  };
 
   const switchToNextPhase = useCallback(() => {
     if (currentPhase === 'countdown') {
@@ -86,15 +108,7 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
     } else if (currentPhase === 'run') {
       if (!isFreeRounds && currentRound >= config.rounds) {
         // Structured workout finished
-        // Stop GPS tracking and finalize distance
-        if (watchIdRef.current !== null) {
-          navigator.geolocation.clearWatch(watchIdRef.current);
-          watchIdRef.current = null;
-        }
-        if (simulationIntervalRef.current !== null) {
-          clearInterval(simulationIntervalRef.current);
-          simulationIntervalRef.current = null;
-        }
+        const gpsTrack = gpsTrackerRef.current?.stopTracking();
         const session = {
           runTime: config.runTime,
           walkTime: config.walkTime,
@@ -102,7 +116,10 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
           totalDuration: runTimeSpent + walkTimeSpent,
           totalRunTime: runTimeSpent,
           totalWalkTime: walkTimeSpent,
-          distance: distance > 0 ? distance : 0
+          distance: gpsTrack?.totalDistance || 0,
+          gpsPoints: gpsTrack?.points,
+          averagePace: gpsTrack?.averagePace,
+          maxSpeed: gpsTrack?.maxSpeed
         };
         onFinish(session);
         return;
@@ -124,7 +141,7 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
       setTimeLeft(3);
       setCountdownValue(3);
     }
-  }, [currentPhase, currentRound, config, runTimeSpent, walkTimeSpent, distance, onFinish, playRunAlert, playWalkAlert, vibrateRun, vibrateWalk, showNotification, isFreeRounds]);
+  }, [currentPhase, currentRound, config, runTimeSpent, walkTimeSpent, onFinish, playRunAlert, playWalkAlert, vibrateRun, vibrateWalk, showNotification, isFreeRounds]);
 
   // Timer logic - completely separate from GPS
   useEffect(() => {
@@ -177,63 +194,6 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
     // eslint-disable-next-line
   }, [totalElapsed]);
 
-  // GPS simulation logic - completely separate from timer
-  useEffect(() => {
-    if (simulateMovement) {
-      // Simulation mode - generates fake coordinates
-      simulationIntervalRef.current = setInterval(() => {
-        const lastCoord = coordsRef.current[coordsRef.current.length - 1] || {
-          lat: 37.7749, lng: -122.4194 // Starting point (San Francisco)
-        };
-        const newCoord = {
-          lat: lastCoord.lat + (Math.random() * 0.0001 - 0.00005),
-          lng: lastCoord.lng + (Math.random() * 0.0001 - 0.00005)
-        };
-        coordsRef.current.push(newCoord);
-        if (coordsRef.current.length > 1) {
-          const prev = coordsRef.current[coordsRef.current.length - 2];
-          const d = haversineDistance(prev.lat, prev.lng, newCoord.lat, newCoord.lng);
-          setDistance((dist) => dist + d);
-        }
-      }, 1000);
-      
-      return () => {
-        if (simulationIntervalRef.current) {
-          clearInterval(simulationIntervalRef.current);
-        }
-      };
-    }
-  }, [simulateMovement]);
-
-  // Real GPS tracking logic - completely separate from timer
-  useEffect(() => {
-    if (!simulateMovement && navigator.geolocation) {
-      // Real GPS tracking
-      coordsRef.current = [];
-      setDistance(0);
-      watchIdRef.current = navigator.geolocation.watchPosition(
-        (pos) => {
-          const { latitude, longitude } = pos.coords;
-          const prev = coordsRef.current[coordsRef.current.length - 1];
-          coordsRef.current.push({ lat: latitude, lng: longitude });
-          if (prev) {
-            const d = haversineDistance(prev.lat, prev.lng, latitude, longitude);
-            setDistance((dist) => dist + d);
-          }
-        },
-        () => {},
-        { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
-      );
-      
-      return () => {
-        if (watchIdRef.current !== null) {
-          navigator.geolocation.clearWatch(watchIdRef.current);
-          watchIdRef.current = null;
-        }
-      };
-    }
-  }, [simulateMovement]);
-
   const togglePause = () => {
     setIsRunning(prev => !prev);
   };
@@ -244,25 +204,23 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
 
   const stopWorkout = () => {
     // Use tracked run/walk time for accuracy
-    // Stop GPS tracking and finalize distance
-    if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
-    }
-    if (simulationIntervalRef.current !== null) {
-      clearInterval(simulationIntervalRef.current);
-      simulationIntervalRef.current = null;
-    }
+    const gpsTrack = gpsTrackerRef.current?.stopTracking();
     const session = {
       runTime: config.runTime,
       walkTime: config.walkTime,
       rounds: isFreeRounds
         ? (currentPhase === 'run' || currentPhase === 'countdown' ? currentRound - 1 : currentRound)
         : config.rounds,
+      completedRounds: isFreeRounds
+        ? (currentPhase === 'run' || currentPhase === 'countdown' ? currentRound - 1 : currentRound)
+        : undefined,
       totalDuration: runTimeSpent + walkTimeSpent,
       totalRunTime: runTimeSpent,
       totalWalkTime: walkTimeSpent,
-      distance: distance > 0 ? distance : 0
+      distance: gpsTrack?.totalDistance || 0,
+      gpsPoints: gpsTrack?.points,
+      averagePace: gpsTrack?.averagePace,
+      maxSpeed: gpsTrack?.maxSpeed
     };
     onFinish(session);
   };
@@ -295,6 +253,13 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
 
   return (
     <div className={`min-h-screen ${getBackgroundColor()} text-white flex flex-col items-center justify-center p-6 transition-colors duration-500`}>
+      <GPSPermissionModal
+        isOpen={showGPSModal}
+        onClose={() => setShowGPSModal(false)}
+        onEnableGPS={handleEnableGPS}
+        onDisableGPS={handleDisableGPS}
+      />
+      
       <div className="w-full max-w-md text-center space-y-8">
         {/* Round indicator */}
         <div className="flex items-center justify-center gap-3">
@@ -312,20 +277,47 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
           )}
         </div>
 
-        {/* GPS Simulation Button */}
-        <div className="flex justify-center mb-4">
-          <Button
-            onClick={() => setSimulateMovement((prev) => !prev)}
-            className={`px-4 py-2 rounded font-bold transition-colors ${simulateMovement ? 'bg-blue-700 text-white' : 'bg-blue-500 text-white hover:bg-blue-600'}`}
-            type="button"
-          >
-            {simulateMovement ? 'Stop Simulation' : 'Test GPS Simulation'}
-          </Button>
-        </div>
+        {/* GPS Status */}
+        {gpsEnabled && (
+          <div className="bg-black bg-opacity-30 rounded-lg p-3 space-y-2">
+            <div className="flex items-center justify-center gap-2 text-green-400">
+              <Navigation size={16} />
+              <span className="text-sm font-semibold">GPS Active</span>
+            </div>
+            {gpsAccuracy && (
+              <div className="text-xs text-gray-300">
+                Accuracy: ±{Math.round(gpsAccuracy)}m
+              </div>
+            )}
+          </div>
+        )}
 
-        {/* Distance Display */}
-        <div className="text-lg font-semibold">
-          Distance: {distance > 1000 ? (distance / 1000).toFixed(2) + " km" : distance.toFixed(1) + " m"}
+        {/* Distance and Pace Display */}
+        <div className="grid grid-cols-2 gap-4">
+          <div className="bg-black bg-opacity-30 rounded-lg p-3">
+            <div className="flex items-center justify-center gap-1 text-green-400 mb-1">
+              <MapPin size={16} />
+              <span className="text-sm">Distance</span>
+            </div>
+            <div className="text-lg font-bold">
+              {distance >= 1000 
+                ? `${(distance / 1000).toFixed(2)} km` 
+                : `${Math.round(distance)} m`
+              }
+            </div>
+          </div>
+          
+          {gpsEnabled && currentPace > 0 && (
+            <div className="bg-black bg-opacity-30 rounded-lg p-3">
+              <div className="text-sm text-cyan-400 mb-1">Pace</div>
+              <div className="text-lg font-bold">
+                {currentPace < 60 
+                  ? `${currentPace.toFixed(1)} min/km`
+                  : `${Math.floor(currentPace)}:${Math.round((currentPace % 1) * 60).toString().padStart(2, '0')} /km`
+                }
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Phase indicator */}
