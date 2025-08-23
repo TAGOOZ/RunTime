@@ -14,6 +14,8 @@ interface GPSTestPanelProps {
 
 export function GPSTestPanel({ onClose }: GPSTestPanelProps) {
   const [isSimulating, setIsSimulating] = useState(false);
+  const [lastSavedSession, setLastSavedSession] = useState<number | null>(null);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [simulationData, setSimulationData] = useState<{
     points: SimulatedGPSPoint[];
     distance: number;
@@ -100,11 +102,26 @@ export function GPSTestPanel({ onClose }: GPSTestPanelProps) {
     if (!isSimulating) return;
 
     setIsSimulating(false);
+    setSaveStatus('saving');
     simulatorRef.current?.stop();
     
     // Save simulation results to database
     if (simulationData.points.length > 0) {
-      await saveSimulationResults();
+      try {
+        const sessionId = await saveSimulationResults();
+        setLastSavedSession(sessionId);
+        setSaveStatus('saved');
+        console.log('✅ Simulation results saved successfully!');
+        
+        // Reset save status after 3 seconds
+        setTimeout(() => setSaveStatus('idle'), 3000);
+      } catch (error) {
+        console.error('❌ Failed to save simulation results:', error);
+        setSaveStatus('error');
+        setTimeout(() => setSaveStatus('idle'), 3000);
+      }
+    } else {
+      setSaveStatus('idle');
     }
     
     simulatorRef.current = null;
@@ -112,34 +129,41 @@ export function GPSTestPanel({ onClose }: GPSTestPanelProps) {
   };
 
   const saveSimulationResults = async () => {
-    try {
-      // Convert simulated points to GPS points
-      const gpsPoints: GPSPoint[] = simulationData.points.map(point => ({
-        latitude: point.latitude,
-        longitude: point.longitude,
-        timestamp: point.timestamp,
-        accuracy: point.accuracy
-      }));
+    console.log('💾 Saving simulation results...', {
+      points: simulationData.points.length,
+      distance: simulationData.distance,
+      duration: simulationData.duration
+    });
 
-      // Create a workout session from simulation data
-      const sessionRecord = {
-        run_time: Math.floor(simulationData.duration * 0.6), // Assume 60% running
-        walk_time: Math.floor(simulationData.duration * 0.4), // Assume 40% walking
-        rounds: 1, // Simulation is one continuous session
-        total_duration: simulationData.duration,
-        total_run_time: Math.floor(simulationData.duration * 0.6),
-        total_walk_time: Math.floor(simulationData.duration * 0.4),
-        distance: simulationData.distance,
-        average_pace: simulationData.averagePace,
-        max_speed: simulationData.maxSpeed,
-        date: new Date().toISOString()
-      };
+    // Convert simulated points to GPS points
+    const gpsPoints: GPSPoint[] = simulationData.points.map(point => ({
+      latitude: point.latitude,
+      longitude: point.longitude,
+      timestamp: point.timestamp,
+      accuracy: point.accuracy
+    }));
 
-      await saveSession(sessionRecord, gpsPoints);
-      console.log('Simulation results saved to database');
-    } catch (error) {
-      console.error('Failed to save simulation results:', error);
-    }
+    // Create a workout session from simulation data
+    const sessionRecord = {
+      run_time: Math.max(1, Math.floor(simulationData.duration * 0.6)), // Ensure at least 1 second
+      walk_time: Math.max(1, Math.floor(simulationData.duration * 0.4)), // Ensure at least 1 second
+      rounds: 1, // Simulation is one continuous session
+      total_duration: simulationData.duration,
+      total_run_time: Math.max(1, Math.floor(simulationData.duration * 0.6)),
+      total_walk_time: Math.max(1, Math.floor(simulationData.duration * 0.4)),
+      distance: Math.round(simulationData.distance), // Round to avoid decimal issues
+      average_pace: simulationData.averagePace > 0 ? simulationData.averagePace : undefined,
+      max_speed: simulationData.maxSpeed > 0 ? simulationData.maxSpeed : undefined,
+      date: new Date().toISOString()
+    };
+
+    console.log('📝 Session record to save:', sessionRecord);
+    console.log('📍 GPS points to save:', gpsPoints.length);
+
+    const sessionId = await saveSession(sessionRecord, gpsPoints);
+    console.log('✅ Session saved with ID:', sessionId);
+    
+    return sessionId;
   };
 
   const loadPreset = (preset: 'walk' | 'jog' | 'run' | 'sprint') => {
@@ -320,14 +344,38 @@ export function GPSTestPanel({ onClose }: GPSTestPanelProps) {
             </Button>
             <Button
               onClick={stopSimulation}
-              disabled={!isSimulating}
+              disabled={!isSimulating || saveStatus === 'saving'}
               variant="destructive"
               className="flex-1"
             >
               <Square size={16} className="mr-2" />
-              {isSimulating ? 'Stop & Save' : 'Stop Simulation'}
+              {saveStatus === 'saving' ? 'Saving...' : isSimulating ? 'Stop & Save' : 'Stop Simulation'}
             </Button>
           </div>
+
+          {/* Save Status */}
+          {saveStatus !== 'idle' && (
+            <div className={`text-center p-3 rounded-lg ${
+              saveStatus === 'saved' ? 'bg-green-900/30 border border-green-700' :
+              saveStatus === 'saving' ? 'bg-blue-900/30 border border-blue-700' :
+              'bg-red-900/30 border border-red-700'
+            }`}>
+              <div className={`font-semibold ${
+                saveStatus === 'saved' ? 'text-green-400' :
+                saveStatus === 'saving' ? 'text-blue-400' :
+                'text-red-400'
+              }`}>
+                {saveStatus === 'saved' && '✅ Simulation saved to database!'}
+                {saveStatus === 'saving' && '💾 Saving simulation results...'}
+                {saveStatus === 'error' && '❌ Failed to save simulation'}
+              </div>
+              {saveStatus === 'saved' && lastSavedSession && (
+                <div className="text-sm text-gray-400 mt-1">
+                  Session ID: {lastSavedSession} • Check your stats to view the workout
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Info */}
           <div className="text-xs text-gray-400 bg-gray-700/30 rounded p-3">
