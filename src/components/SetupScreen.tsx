@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { formatTime } from '../lib/utils';
-import { Play, BarChart3 } from 'lucide-react';
+import { Play, BarChart3, MapPin } from 'lucide-react';
+import { GPSTestPanel } from './GPSTestPanel';
 
 interface SetupScreenProps {
   onStart: (config: {
@@ -16,6 +17,7 @@ export function SetupScreen({ onStart, onViewStats }: SetupScreenProps) {
   const [walkTime, setWalkTime] = useState(90);
   const [rounds, setRounds] = useState(8);
   const [isFreeRounds, setIsFreeRounds] = useState(false);
+  const [showGPSTest, setShowGPSTest] = useState(false);
 
   const handleStart = () => {
     onStart({ runTime, walkTime, rounds: isFreeRounds ? -1 : rounds });
@@ -112,6 +114,14 @@ export function SetupScreen({ onStart, onViewStats }: SetupScreenProps) {
           View Stats
         </button>
 
+        <button
+          onClick={() => setShowGPSTest(true)}
+          className="w-full bg-blue-700 text-white py-4 rounded-lg text-2xl font-bold flex items-center justify-center gap-3 hover:bg-blue-600 transition-colors"
+        >
+          <MapPin size={28} />
+          GPS Test
+        </button>
+
         <div className="text-center text-gray-400">
           <p>
             {isFreeRounds 
@@ -121,6 +131,10 @@ export function SetupScreen({ onStart, onViewStats }: SetupScreenProps) {
           </p>
         </div>
       </div>
+
+      {showGPSTest && (
+        <GPSTestPanel onClose={() => setShowGPSTest(false)} />
+      )}
     </div>
   );
 }
