@@ -31,6 +31,9 @@ export function FinishScreen({ session, onNewWorkout, onViewStats, onDontSave }:
   const [showMap, setShowMap] = useState(false);
   const hasGPSData = session.gpsPoints && session.gpsPoints.length > 0;
   
+  // Ensure distance is always a number (fallback to 0 if undefined/null)
+  const sessionDistance = session.distance || 0;
+  
   // Format distance for display (meters or kilometers)
   const formatDistance = (distance: number) => {
     if (distance >= 1000) {
@@ -105,15 +108,15 @@ export function FinishScreen({ session, onNewWorkout, onViewStats, onDontSave }:
               </div>
             </div>
 
-            {/* Distance Display */}
-            {session.distance > 0 && (
+            {/* Distance Display - Always show, even if 0 */}
+            {sessionDistance >= 0 && (
               <div className="border-t border-gray-700 pt-4 text-center">
                 <div className="flex items-center justify-center gap-2 text-gray-400 text-base mb-1">
                   <MapPin size={16} />
-                  Distance Covered
+                  {sessionDistance > 0 ? 'Distance Covered' : 'Distance (GPS not used)'}
                 </div>
-                <div className="font-extrabold text-3xl text-green-400">
-                  {formatDistance(session.distance)}
+                <div className={`font-extrabold text-3xl ${sessionDistance > 0 ? 'text-green-400' : 'text-gray-500'}`}>
+                  {formatDistance(sessionDistance)}
                 </div>
               </div>
             )}

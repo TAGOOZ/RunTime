@@ -109,6 +109,10 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
       if (!isFreeRounds && currentRound >= config.rounds) {
         // Structured workout finished
         const gpsTrack = gpsTrackerRef.current?.stopTracking();
+        
+        // Ensure distance is always included, even if 0
+        const finalDistance = gpsTrack?.totalDistance || distance || 0;
+        
         const session = {
           runTime: config.runTime,
           walkTime: config.walkTime,
@@ -116,7 +120,7 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
           totalDuration: runTimeSpent + walkTimeSpent,
           totalRunTime: runTimeSpent,
           totalWalkTime: walkTimeSpent,
-          distance: gpsTrack?.totalDistance || 0,
+          distance: finalDistance,
           gpsPoints: gpsTrack?.points,
           averagePace: gpsTrack?.averagePace,
           maxSpeed: gpsTrack?.maxSpeed
@@ -205,6 +209,10 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
   const stopWorkout = () => {
     // Use tracked run/walk time for accuracy
     const gpsTrack = gpsTrackerRef.current?.stopTracking();
+    
+    // Ensure distance is always included, even if 0
+    const finalDistance = gpsTrack?.totalDistance || distance || 0;
+    
     const session = {
       runTime: config.runTime,
       walkTime: config.walkTime,
@@ -217,7 +225,7 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
       totalDuration: runTimeSpent + walkTimeSpent,
       totalRunTime: runTimeSpent,
       totalWalkTime: walkTimeSpent,
-      distance: gpsTrack?.totalDistance || 0,
+      distance: finalDistance,
       gpsPoints: gpsTrack?.points,
       averagePace: gpsTrack?.averagePace,
       maxSpeed: gpsTrack?.maxSpeed
