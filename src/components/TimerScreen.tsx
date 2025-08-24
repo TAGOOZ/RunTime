@@ -54,7 +54,7 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
   const [currentPace, setCurrentPace] = useState(0);
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
   const gpsTrackerRef = useRef<GPSTracker | null>(null);
-  const [hasShownGPSModal, setHasShownGPSModal] = useState(false);
+  const [hasShownGPSModal, setHasShownGPSModal] = useState(true); // Default to true to prevent blocking
 
   // Track actual run/walk time spent
   const [runTimeSpent, setRunTimeSpent] = useState(0);
@@ -139,7 +139,12 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
   // Check if GPS modal should be shown only once per session
   useEffect(() => {
     const hasSeenGPSModal = localStorage.getItem('hasSeenGPSModal');
-    if (hasSeenGPSModal) {
+    if (!hasSeenGPSModal) {
+      // Only show modal if user hasn't seen it before
+      setShowGPSModal(true);
+      setHasShownGPSModal(false);
+    } else {
+      // User has seen it before, don't show modal
       setShowGPSModal(false);
       setHasShownGPSModal(true);
     }
@@ -364,12 +369,15 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
 
   return (
     <div className={`min-h-screen ${getBackgroundColor()} text-white flex flex-col items-center justify-center p-6 transition-colors duration-500`}>
-      <GPSPermissionModal
+      {/* Only render GPS modal if it should be shown and hasn't been shown yet */}
+      {showGPSModal && !hasShownGPSModal && (
+        <GPSPermissionModal
         isOpen={showGPSModal && !hasShownGPSModal}
         onClose={() => setShowGPSModal(false)}
         onEnableGPS={handleEnableGPS}
         onDisableGPS={handleDisableGPS}
-      />
+        />
+      )}
       
       <div className="w-full max-w-lg text-center space-y-6">
         {/* Background status indicator */}
