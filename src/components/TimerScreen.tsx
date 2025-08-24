@@ -256,7 +256,7 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
       setTimeLeft(3);
       setCountdownValue(3);
     }
-  }, [currentPhase, currentRound, config, runTimeSpent, walkTimeSpent, onFinish, playRunAlert, playWalkAlert, vibrateRun, vibrateWalk, showNotification, isFreeRounds]);
+  }, [currentPhase, currentRound, config, runTimeSpent, walkTimeSpent, onFinish, playRunAlert, playWalkAlert, vibrateRun, vibrateWalk, showNotification, isFreeRounds, distance]);
 
   // Timer logic - completely separate from GPS
   useEffect(() => {
@@ -591,14 +591,6 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
           </div>
         )}
       </div>
-      )}
-      
-      {/* Loading state while GPS modal state is being determined */}
-      {!isGPSModalReady && (
-        <div className="w-full max-w-lg text-center">
-          <div className="text-2xl font-bold mb-4">Loading...</div>
-          <div className="text-gray-300">Preparing workout</div>
-        </div>
       )}
     </div>
   );
