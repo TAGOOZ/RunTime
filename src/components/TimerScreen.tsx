@@ -141,16 +141,19 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
   // Check GPS modal state on component mount
   useEffect(() => {
     const hasSeenGPSModal = localStorage.getItem('hasSeenGPSModal');
-    if (!hasSeenGPSModal) {
-      // User hasn't seen GPS modal before, show it
-      setShowGPSModal(true);
-      setHasShownGPSModal(false);
-    } else {
-      // User has seen it before, don't show modal and start timer immediately
-      setShowGPSModal(false);
-      setHasShownGPSModal(true);
-    }
-    setIsGPSModalReady(true);
+    // Add timeout to prevent infinite loading
+    const modalTimeout = setTimeout(() => {
+      if (!hasSeenGPSModal) {
+        setShowGPSModal(true);
+        setHasShownGPSModal(false);
+      } else {
+        setShowGPSModal(false);
+        setHasShownGPSModal(true);
+      }
+      setIsGPSModalReady(true);
+    }, 100);
+
+    return () => clearTimeout(modalTimeout);
   }, []);
 
   // GPS permission and setup

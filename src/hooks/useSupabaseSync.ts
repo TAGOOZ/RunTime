@@ -22,8 +22,14 @@ export function useSupabaseSync() {
   const syncSessions = useCallback(async (): Promise<boolean> => {
     if (!isOnline) return false;
 
+    // Add timeout to prevent hanging sync
+    const syncTimeout = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Sync timeout')), 30000)
+    );
+
     setIsSyncing(true);
     try {
+      const syncPromise = (async () => {
       const allSessionsWithGPS = await getAllSessionsWithGPS();
       const unsyncedSessions = allSessionsWithGPS
         .filter(({ session }) => session.synced === 0)
@@ -88,6 +94,11 @@ export function useSupabaseSync() {
 
       // Clear IndexedDB only after successful upload
       await clearSessions();
+      return true;
+        // ... rest of sync logic
+      })();
+
+      await Promise.race([syncPromise, syncTimeout]);
       return true;
     } catch (error) {
       console.error('Sync failed:', error);

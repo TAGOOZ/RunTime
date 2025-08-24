@@ -58,12 +58,19 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Skip requests that might cause white screen issues
+  if (event.request.url.includes('/api/') || 
+      event.request.url.includes('chrome-extension://')) {
+    return;
+  }
   event.respondWith(
     caches.match(event.request)
       .then((response) => {
         // Return cached version if available
         if (response) {
           console.log('Serving from cache:', event.request.url);
+          // Check if cached response is valid
+          if (response.status === 200 || response.type === 'opaque') {
           return response;
         }
 
@@ -86,6 +93,7 @@ self.addEventListener('fetch', (event) => {
               });
 
             return response;
+          }
           })
           .catch((error) => {
             console.error('Fetch failed:', error);
@@ -94,6 +102,17 @@ self.addEventListener('fetch', (event) => {
               return caches.match('/');
             }
             throw error;
+            // Don't cache error pages or empty responses
+              return caches.match('/').then(fallback => {
+                if (fallback) return fallback;
+                // Create a basic fallback response
+                return new Response(
+                  '<html><body><h1>App Offline</h1><p>Please check your connection and try again.</p></body></html>',
+                  { headers: { 'Content-Type': 'text/html' } }
+                );
+              });
+              return response;
+            }
           });
       })
   );

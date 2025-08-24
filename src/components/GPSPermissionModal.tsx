@@ -15,7 +15,14 @@ export function GPSPermissionModal({ isOpen, onClose, onEnableGPS, onDisableGPS 
 
   const handleEnableGPS = async () => {
     try {
+      // Add loading state and timeout
+      const timeoutId = setTimeout(() => {
+        console.warn('GPS permission timeout, proceeding without GPS');
+        onClose();
+      }, 10000); // 10 second timeout
+      
       await onEnableGPS();
+      clearTimeout(timeoutId);
     } catch (error) {
       console.error('GPS enable failed:', error);
       // Still close modal even if GPS fails

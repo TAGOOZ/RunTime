@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { SetupScreen } from './components/SetupScreen';
 import { TimerScreen } from './components/TimerScreen';
 import { FinishScreen } from './components/FinishScreen';
@@ -151,6 +152,7 @@ function App() {
   };
 
   return (
+    <ErrorBoundary>
     <div className="relative">
       {/* Status bar */}
       <div className="fixed top-0 left-0 right-0 z-50 bg-gray-800 text-white px-4 py-2 flex justify-between items-center text-sm">
@@ -206,6 +208,7 @@ function App() {
           <StatsScreen onBack={handleBackToSetup} />
         )}
       </div>
+    </ErrorBoundary>
     </div>
   );
 }
