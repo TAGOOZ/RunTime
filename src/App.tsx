@@ -43,13 +43,36 @@ function App() {
   useEffect(() => {
     // Register service worker for PWA
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js')
+      navigator.serviceWorker.register('/sw.js', { scope: '/' })
         .then(registration => {
           console.log('SW registered:', registration);
+          
+          // Listen for updates
+          registration.addEventListener('updatefound', () => {
+            const newWorker = registration.installing;
+            if (newWorker) {
+              newWorker.addEventListener('statechange', () => {
+                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                  // New content is available, refresh the page
+                  window.location.reload();
+                }
+              });
+            }
+          });
         })
         .catch(error => {
           console.log('SW registration failed:', error);
         });
+      
+      // Listen for messages from service worker
+      navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data && event.data.type === 'BACKGROUND_SYNC') {
+          // Trigger sync when service worker requests it
+          if (isOnline) {
+            syncSessions();
+          }
+        }
+      });
     }
 
     // Sync on app load if online
