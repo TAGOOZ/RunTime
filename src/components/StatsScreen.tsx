@@ -37,6 +37,7 @@ import {
   Pie,
   Cell
 } from 'recharts';
+import { PerformanceChart } from './PerformanceChart';
 
 interface StatsScreenProps {
   onBack: () => void;
@@ -481,7 +482,8 @@ export function StatsScreen({ onBack }: StatsScreenProps) {
                     { key: 'trends', label: 'Trends', icon: LineChart },
                     { key: 'distribution', label: 'Time Split', icon: Target },
                     { key: 'pace', label: 'Pace', icon: Zap },
-                    { key: 'calendar', label: 'Calendar', icon: Calendar }
+                    { key: 'calendar', label: 'Calendar', icon: Calendar },
+                    { key: 'performance', label: 'Performance', icon: TrendingUp }
                   ].map(({ key, label, icon: Icon }) => (
                     <Button
                       key={key}
@@ -502,6 +504,23 @@ export function StatsScreen({ onBack }: StatsScreenProps) {
 
               {/* Chart Content */}
               <div className="h-80">
+                {activeChart === 'performance' && sessions.length > 1 && (
+                  <div className="h-full overflow-y-auto">
+                    <PerformanceChart
+                      currentSession={{
+                        date: sessions[0]?.session.date || new Date().toISOString(),
+                        total_duration: sessions[0]?.session.total_duration || 0,
+                        distance: sessions[0]?.session.distance || 0,
+                        average_pace: sessions[0]?.session.average_pace,
+                        total_run_time: sessions[0]?.session.total_run_time || 0,
+                        total_walk_time: sessions[0]?.session.total_walk_time || 0
+                      }}
+                      previousSessions={sessions.slice(1, 6).map(({ session }) => session)}
+                      className="h-auto"
+                    />
+                  </div>
+                )}
+
                 {activeChart === 'trends' && chartData.length > 0 && (
                   <ResponsiveContainer width="100%" height="100%">
                     <RechartsLineChart data={chartData}>
@@ -637,12 +656,20 @@ export function StatsScreen({ onBack }: StatsScreenProps) {
                 {/* Empty state */}
                 {((activeChart === 'trends' && chartData.length === 0) ||
                   (activeChart === 'distribution' && stats.totalSessions === 0) ||
-                  (activeChart === 'pace' && paceData.length === 0)) && (
+                  (activeChart === 'pace' && paceData.length === 0) ||
+                  (activeChart === 'performance' && sessions.length <= 1)) && (
                   <div className="flex items-center justify-center h-full">
                     <div className="text-center text-gray-400">
                       <BarChart3 size={48} className="mx-auto mb-4 opacity-50" />
-                      <p className="text-lg">No data available</p>
-                      <p className="text-sm">Complete some workouts to see your analytics</p>
+                      <p className="text-lg">
+                        {activeChart === 'performance' ? 'Need more sessions for comparison' : 'No data available'}
+                      </p>
+                      <p className="text-sm">
+                        {activeChart === 'performance' 
+                          ? 'Complete at least 2 workouts to see performance comparisons'
+                          : 'Complete some workouts to see your analytics'
+                        }
+                      </p>
                     </div>
                   </div>
                 )}

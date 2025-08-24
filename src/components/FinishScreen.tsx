@@ -7,6 +7,9 @@ import { RouteMap } from './RouteMap';
 import { GPSPoint } from '../lib/gps';
 import { useState } from 'react';
 import { PWAInstallButton } from './PWAInstallButton';
+import { PerformanceChart } from './PerformanceChart';
+import { getAllSessionsWithGPS } from '../lib/storage';
+import { useEffect } from 'react';
 
 type FinishScreenProps = {
   session: {
@@ -30,7 +33,28 @@ type FinishScreenProps = {
 export function FinishScreen({ session, onNewWorkout, onViewStats, onDontSave }: FinishScreenProps) {
   const isFreeRounds = session.rounds <= 0;
   const [showMap, setShowMap] = useState(false);
+  const [showPerformanceChart, setShowPerformanceChart] = useState(false);
+  const [previousSessions, setPreviousSessions] = useState<any[]>([]);
   const hasGPSData = session.gpsPoints && session.gpsPoints.length > 0;
+  
+  // Load previous sessions for performance comparison
+  useEffect(() => {
+    const loadPreviousSessions = async () => {
+      try {
+        const allSessions = await getAllSessionsWithGPS();
+        // Get the last 5 sessions (excluding current one)
+        const previous = allSessions
+          .map(({ session }) => session)
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+          .slice(0, 5);
+        setPreviousSessions(previous);
+      } catch (error) {
+        console.error('Failed to load previous sessions:', error);
+      }
+    };
+    
+    loadPreviousSessions();
+  }, []);
   
   // Ensure distance is always a number (fallback to 0 if undefined/null)
   const sessionDistance = session.distance || 0;
@@ -207,6 +231,19 @@ export function FinishScreen({ session, onNewWorkout, onViewStats, onDontSave }:
             </Card>
           </CardContent>
         </Card>
+
+        {/* Performance Comparison Chart */}
+        <PerformanceChart
+          currentSession={{
+            date: new Date().toISOString(),
+            total_duration: session.totalDuration,
+            distance: sessionDistance,
+            average_pace: session.averagePace,
+            total_run_time: session.totalRunTime,
+            total_walk_time: session.totalWalkTime
+          }}
+          previousSessions={previousSessions}
+        />
 
         {/* Route Map */}
         {hasGPSData && (
