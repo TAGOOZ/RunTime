@@ -16,10 +16,11 @@ export function GPSPermissionModal({ isOpen, onClose, onEnableGPS, onDisableGPS 
   const handleEnableGPS = async () => {
     try {
       await onEnableGPS();
+      onClose();
     } catch (error) {
       console.error('GPS enable failed:', error);
-      // Still close modal even if GPS fails
-      onClose();
+      // Don't close modal if GPS fails, let user try again or choose timer only
+      alert('GPS setup failed. You can try again or continue with timer only.');
     }
   };
 
@@ -28,17 +29,27 @@ export function GPSPermissionModal({ isOpen, onClose, onEnableGPS, onDisableGPS 
     onClose();
   };
 
+  const handleModalClick = (e: React.MouseEvent) => {
+    // Prevent closing when clicking inside the modal content
+    e.stopPropagation();
+  };
+
+  const handleBackdropClick = (e: React.MouseEvent) => {
+    // Only close if clicking the backdrop, not the modal content
+    if (e.target === e.currentTarget) {
+      onClose();
+    }
+  };
+
   return (
     <div 
       className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 p-4"
-      onClick={(e) => {
-        // Close modal if clicking outside
-        if (e.target === e.currentTarget) {
-          onClose();
-        }
-      }}
+      onClick={handleBackdropClick}
     >
-      <Card className="bg-gradient-to-br from-gray-800 to-gray-900 border-gray-600 w-full max-w-lg shadow-2xl">
+      <Card 
+        className="bg-gradient-to-br from-gray-800 to-gray-900 border-gray-600 w-full max-w-lg shadow-2xl"
+        onClick={handleModalClick}
+      >
         <CardHeader className="pb-4">
           <CardTitle className="text-white text-2xl flex items-center gap-3">
             <div className="p-2 bg-green-500/20 rounded-full">
@@ -95,7 +106,8 @@ export function GPSPermissionModal({ isOpen, onClose, onEnableGPS, onDisableGPS 
           </div>
           
           <div className="text-center text-sm text-gray-400 bg-gray-700/30 rounded-lg p-3">
-            💡 You can change this setting anytime in your browser preferences
+            <div className="mb-2">💡 You can change this setting anytime in your browser preferences</div>
+            <div className="text-xs text-yellow-400">⏱️ This dialog will auto-close in 10 seconds</div>
           </div>
         </CardContent>
       </Card>

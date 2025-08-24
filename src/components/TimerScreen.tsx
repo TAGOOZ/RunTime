@@ -54,8 +54,8 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
   const [currentPace, setCurrentPace] = useState(0);
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
   const gpsTrackerRef = useRef<GPSTracker | null>(null);
-  const [hasShownGPSModal, setHasShownGPSModal] = useState(false);
-  const [isGPSModalReady, setIsGPSModalReady] = useState(false);
+  const [gpsModalState, setGpsModalState] = useState<'loading' | 'show' | 'hidden'>('loading');
+  const [hasUserMadeGPSChoice, setHasUserMadeGPSChoice] = useState(false);
 
   // Track actual run/walk time spent
   const [runTimeSpent, setRunTimeSpent] = useState(0);
@@ -138,20 +138,51 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
     requestPermission();
   }, [requestPermission]);
   
-  // Check GPS modal state on component mount
+  // Initialize GPS modal state on component mount
   useEffect(() => {
-    const hasSeenGPSModal = localStorage.getItem('hasSeenGPSModal');
-    if (!hasSeenGPSModal) {
-      // User hasn't seen GPS modal before, show it
-      setShowGPSModal(true);
-      setHasShownGPSModal(false);
-    } else {
-      // User has seen it before, don't show modal and start timer immediately
-      setShowGPSModal(false);
-      setHasShownGPSModal(true);
-    }
-    setIsGPSModalReady(true);
+    const initializeGPSModal = async () => {
+      try {
+        // Check if user has made a GPS choice before
+        const gpsChoice = localStorage.getItem('userGPSChoice');
+        const hasSeenModal = localStorage.getItem('hasSeenGPSModal');
+        
+        if (gpsChoice === 'enabled') {
+          // User previously enabled GPS, try to enable it again
+          try {
+            await handleEnableGPS();
+            setGpsModalState('hidden');
+          } catch (error) {
+            // If GPS fails, show modal again
+            console.log('Previous GPS choice failed, showing modal');
+            setGpsModalState('show');
+          }
+        } else if (gpsChoice === 'disabled' || hasSeenModal === 'true') {
+          // User previously disabled GPS or dismissed modal, start without GPS
+          setGpsModalState('hidden');
+        } else {
+          // First time user, show GPS modal
+          setGpsModalState('show');
+        }
+      } catch (error) {
+        console.error('Error initializing GPS modal:', error);
+        // On error, show the modal to let user choose
+        setGpsModalState('show');
+      }
+    };
+
+    initializeGPSModal();
   }, []);
+
+  // Auto-hide GPS modal after 10 seconds if user doesn't interact
+  useEffect(() => {
+    if (gpsModalState === 'show') {
+      const timeout = setTimeout(() => {
+        console.log('GPS modal auto-dismissed after 10 seconds');
+        handleDisableGPS();
+      }, 10000);
+      
+      return () => clearTimeout(timeout);
+    }
 
   // GPS permission and setup
   const handleEnableGPS = async () => {
@@ -168,8 +199,9 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
         gpsTrackerRef.current = tracker;
         setGpsEnabled(true);
         setGpsPermissionGranted(true);
-        setShowGPSModal(false);
-        setHasShownGPSModal(true);
+        setGpsModalState('hidden');
+        setHasUserMadeGPSChoice(true);
+        localStorage.setItem('userGPSChoice', 'enabled');
         localStorage.setItem('hasSeenGPSModal', 'true');
       } else {
         throw new Error('GPS permission denied');
@@ -177,16 +209,19 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
     } catch (error) {
       console.error('GPS setup failed:', error);
       setGpsEnabled(false);
-      setShowGPSModal(false);
-      setHasShownGPSModal(true);
+      setGpsModalState('hidden');
+      setHasUserMadeGPSChoice(true);
+      localStorage.setItem('userGPSChoice', 'disabled');
       localStorage.setItem('hasSeenGPSModal', 'true');
+      throw error; // Re-throw to handle in initialization
     }
   };
 
   const handleDisableGPS = () => {
     setGpsEnabled(false);
-    setShowGPSModal(false);
-    setHasShownGPSModal(true);
+    setGpsModalState('hidden');
+    setHasUserMadeGPSChoice(true);
+    localStorage.setItem('userGPSChoice', 'disabled');
     localStorage.setItem('hasSeenGPSModal', 'true');
   };
 
@@ -372,22 +407,36 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
 
   return (
     <div className={`min-h-screen ${getBackgroundColor()} text-white flex flex-col items-center justify-center p-6 transition-colors duration-500`}>
-      {/* Only render GPS modal if ready and should be shown */}
-      {isGPSModalReady && showGPSModal && !hasShownGPSModal && (
+      {/* Loading state */}
+      {gpsModalState === 'loading' && (
+        <div className="w-full max-w-lg text-center">
+          <Card className="bg-gray-800/80 border-gray-600/50 backdrop-blur-sm">
+            <CardContent className="p-8">
+              <div className="flex items-center justify-center gap-3 mb-4">
+                <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                <span className="text-xl font-semibold">Initializing Workout...</span>
+              </div>
+              <p className="text-gray-300">Setting up your fitness timer</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* GPS Permission Modal */}
+      {gpsModalState === 'show' && (
         <GPSPermissionModal
           isOpen={true}
           onClose={() => {
-            setShowGPSModal(false);
-            setHasShownGPSModal(true);
-            localStorage.setItem('hasSeenGPSModal', 'true');
+            console.log('GPS modal closed without choice');
+            handleDisableGPS();
           }}
           onEnableGPS={handleEnableGPS}
           onDisableGPS={handleDisableGPS}
         />
       )}
       
-      {/* Only show timer content when GPS modal is ready */}
-      {isGPSModalReady && (
+      {/* Timer content - show when GPS modal is hidden */}
+      {gpsModalState === 'hidden' && (
         <div className="w-full max-w-lg text-center space-y-6">
         {/* Background status indicator */}
         {isInBackground && (
