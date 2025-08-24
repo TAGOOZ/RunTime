@@ -73,6 +73,7 @@ self.addEventListener('fetch', (event) => {
           if (response.status === 200 || response.type === 'opaque') {
           return response;
         }
+        }
 
         // Otherwise fetch from network
         console.log('Fetching from network:', event.request.url);
@@ -93,7 +94,6 @@ self.addEventListener('fetch', (event) => {
               });
 
             return response;
-          }
           })
           .catch((error) => {
             console.error('Fetch failed:', error);
@@ -112,8 +112,7 @@ self.addEventListener('fetch', (event) => {
                 );
               });
               return response;
-            }
-          });
+            });
       })
   );
 });
