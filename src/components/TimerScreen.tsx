@@ -60,10 +60,82 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
   const [runTimeSpent, setRunTimeSpent] = useState(0);
   const [walkTimeSpent, setWalkTimeSpent] = useState(0);
 
+  // Background functionality state
+  const [isInBackground, setIsInBackground] = useState(false);
+  const [wakeLock, setWakeLock] = useState<WakeLockSentinel | null>(null);
+  const startTimeRef = useRef<number>(Date.now());
+  const lastUpdateRef = useRef<number>(Date.now());
   const { playRunAlert, playWalkAlert, playCountdown } = useAudio();
   const { vibrateRun, vibrateWalk, vibrateCountdown } = useVibration();
-  const { showNotification } = useNotifications();
+  const { showNotification, requestPermission } = useNotifications();
 
+  // Request wake lock to keep screen on during workout
+  useEffect(() => {
+    const requestWakeLock = async () => {
+      try {
+        if ('wakeLock' in navigator) {
+          const wakeLockSentinel = await navigator.wakeLock.request('screen');
+          setWakeLock(wakeLockSentinel);
+          console.log('Wake lock acquired');
+        }
+      } catch (error) {
+        console.error('Wake lock failed:', error);
+      }
+    };
+
+    requestWakeLock();
+
+    // Clean up wake lock on unmount
+    return () => {
+      if (wakeLock) {
+        wakeLock.release();
+        setWakeLock(null);
+      }
+    };
+  }, []);
+
+  // Handle visibility change (screen on/off, app backgrounded)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      const isHidden = document.hidden;
+      setIsInBackground(isHidden);
+      
+      if (isHidden) {
+        // App going to background - store current time
+        lastUpdateRef.current = Date.now();
+        console.log('App backgrounded at:', new Date().toLocaleTimeString());
+      } else {
+        // App coming back to foreground - calculate missed time
+        const now = Date.now();
+        const timeMissed = Math.floor((now - lastUpdateRef.current) / 1000);
+        
+        if (timeMissed > 0 && isRunning) {
+          console.log(`App foregrounded, missed ${timeMissed} seconds`);
+          
+          // Update elapsed time
+          setTotalElapsed(prev => prev + timeMissed);
+          
+          // Update phase-specific time
+          if (currentPhase === 'run') {
+            setRunTimeSpent(prev => prev + timeMissed);
+          } else if (currentPhase === 'walk') {
+            setWalkTimeSpent(prev => prev + timeMissed);
+          }
+          
+          // Adjust current timer
+          setTimeLeft(prev => Math.max(0, prev - timeMissed));
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [isRunning, currentPhase]);
+
+  // Request notification permission on component mount
+  useEffect(() => {
+    requestPermission();
+  }, [requestPermission]);
   // Check if GPS modal should be shown only once per session
   useEffect(() => {
     const hasSeenGPSModal = localStorage.getItem('hasSeenGPSModal');
@@ -120,7 +192,10 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
         body: isFreeRounds 
           ? `Round ${currentRound} - Free rounds mode`
           : `Round ${currentRound} of ${config.rounds}`,
-        icon: '/manifest.json'
+        icon: '/manifest.json',
+        tag: 'phase-change',
+        requireInteraction: false,
+        silent: false
       });
     } else if (currentPhase === 'run') {
       if (!isFreeRounds && currentRound >= config.rounds) {
@@ -129,6 +204,14 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
         
         // Ensure distance is always included, even if 0
         const finalDistance = gpsTrack?.totalDistance || distance || 0;
+        
+        // Show completion notification
+        showNotification('Workout Complete!', {
+          body: `Great job! You completed ${config.rounds} rounds.`,
+          icon: '/manifest.json',
+          tag: 'workout-complete',
+          requireInteraction: true
+        });
         
         const session = {
           runTime: config.runTime,
@@ -154,7 +237,10 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
         body: isFreeRounds
           ? `Recovery time - Round ${currentRound}`
           : `Recovery time - Round ${currentRound} of ${config.rounds}`,
-        icon: '/manifest.json'
+        icon: '/manifest.json',
+        tag: 'phase-change',
+        requireInteraction: false,
+        silent: false
       });
     } else if (currentPhase === 'walk') {
       setCurrentRound(prev => prev + 1);
@@ -286,6 +372,18 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
       />
       
       <div className="w-full max-w-lg text-center space-y-6">
+        {/* Background status indicator */}
+        {isInBackground && (
+          <Card className="bg-yellow-900/30 border-yellow-500/30 backdrop-blur-sm">
+            <CardContent className="p-3">
+              <div className="flex items-center justify-center gap-2 text-yellow-400">
+                <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"></div>
+                <span className="text-sm font-semibold">Running in Background</span>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Round indicator */}
         <Card className="bg-black/20 border-white/20 backdrop-blur-sm">
           <CardContent className="p-4">
@@ -468,6 +566,13 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
             </div>
           </CardContent>
         </Card>
+
+        {/* Keep screen on reminder */}
+        {!wakeLock && (
+          <div className="text-center text-sm text-yellow-400 bg-yellow-900/20 rounded-lg p-3">
+            💡 Keep your screen on for best timer accuracy
+          </div>
+        )}
       </div>
     </div>
   );

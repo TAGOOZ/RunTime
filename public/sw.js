@@ -110,22 +110,40 @@ self.addEventListener('sync', (event) => {
 // Handle push notifications
 self.addEventListener('push', (event) => {
   console.log('Push notification received');
-  const options = {
-    body: event.data ? event.data.text() : 'Workout reminder',
+  
+  let notificationData = {
+    title: 'Fitness Timer',
+    body: 'Workout reminder',
     icon: '/manifest.json',
     badge: '/manifest.json',
     tag: 'fitness-timer',
-    requireInteraction: false,
-    actions: [
-      {
-        action: 'open',
-        title: 'Open App'
-      }
-    ]
+    requireInteraction: false
   };
 
+  if (event.data) {
+    try {
+      const data = event.data.json();
+      notificationData = { ...notificationData, ...data };
+    } catch (e) {
+      notificationData.body = event.data.text();
+    }
+  }
+
   event.waitUntil(
-    self.registration.showNotification('Fitness Timer', options)
+    self.registration.showNotification(notificationData.title, {
+      body: notificationData.body,
+      icon: notificationData.icon,
+      badge: notificationData.badge,
+      tag: notificationData.tag,
+      requireInteraction: notificationData.requireInteraction,
+      actions: [
+        {
+          action: 'open',
+          title: 'Open App'
+        }
+      ],
+      data: notificationData
+    })
   );
 });
 
@@ -135,7 +153,18 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
   event.waitUntil(
-    clients.openWindow('/')
+    clients.matchAll({ type: 'window' }).then(clientList => {
+      // If app is already open, focus it
+      for (const client of clientList) {
+        if (client.url === self.location.origin + '/' && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      // Otherwise open new window
+      if (clients.openWindow) {
+        return clients.openWindow('/');
+      }
+    })
   );
 });
 
