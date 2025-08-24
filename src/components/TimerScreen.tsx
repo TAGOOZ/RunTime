@@ -54,7 +54,8 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
   const [currentPace, setCurrentPace] = useState(0);
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
   const gpsTrackerRef = useRef<GPSTracker | null>(null);
-  const [hasShownGPSModal, setHasShownGPSModal] = useState(true); // Default to true to prevent blocking
+  const [hasShownGPSModal, setHasShownGPSModal] = useState(false);
+  const [isGPSModalReady, setIsGPSModalReady] = useState(false);
 
   // Track actual run/walk time spent
   const [runTimeSpent, setRunTimeSpent] = useState(0);
@@ -136,18 +137,20 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
   useEffect(() => {
     requestPermission();
   }, [requestPermission]);
-  // Check if GPS modal should be shown only once per session
+  
+  // Check GPS modal state on component mount
   useEffect(() => {
     const hasSeenGPSModal = localStorage.getItem('hasSeenGPSModal');
     if (!hasSeenGPSModal) {
-      // Only show modal if user hasn't seen it before
+      // User hasn't seen GPS modal before, show it
       setShowGPSModal(true);
       setHasShownGPSModal(false);
     } else {
-      // User has seen it before, don't show modal
+      // User has seen it before, don't show modal and start timer immediately
       setShowGPSModal(false);
       setHasShownGPSModal(true);
     }
+    setIsGPSModalReady(true);
   }, []);
 
   // GPS permission and setup
@@ -369,17 +372,23 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
 
   return (
     <div className={`min-h-screen ${getBackgroundColor()} text-white flex flex-col items-center justify-center p-6 transition-colors duration-500`}>
-      {/* Only render GPS modal if it should be shown and hasn't been shown yet */}
-      {showGPSModal && !hasShownGPSModal && (
+      {/* Only render GPS modal if ready and should be shown */}
+      {isGPSModalReady && showGPSModal && !hasShownGPSModal && (
         <GPSPermissionModal
-        isOpen={showGPSModal && !hasShownGPSModal}
-        onClose={() => setShowGPSModal(false)}
-        onEnableGPS={handleEnableGPS}
-        onDisableGPS={handleDisableGPS}
+          isOpen={true}
+          onClose={() => {
+            setShowGPSModal(false);
+            setHasShownGPSModal(true);
+            localStorage.setItem('hasSeenGPSModal', 'true');
+          }}
+          onEnableGPS={handleEnableGPS}
+          onDisableGPS={handleDisableGPS}
         />
       )}
       
-      <div className="w-full max-w-lg text-center space-y-6">
+      {/* Only show timer content when GPS modal is ready */}
+      {isGPSModalReady && (
+        <div className="w-full max-w-lg text-center space-y-6">
         {/* Background status indicator */}
         {isInBackground && (
           <Card className="bg-yellow-900/30 border-yellow-500/30 backdrop-blur-sm">
@@ -582,6 +591,15 @@ export function TimerScreen({ config, onFinish, onStop }: TimerScreenProps) {
           </div>
         )}
       </div>
+      )}
+      
+      {/* Loading state while GPS modal state is being determined */}
+      {!isGPSModalReady && (
+        <div className="w-full max-w-lg text-center">
+          <div className="text-2xl font-bold mb-4">Loading...</div>
+          <div className="text-gray-300">Preparing workout</div>
+        </div>
+      )}
     </div>
   );
 }
